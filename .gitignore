@@ -1,0 +1,23 @@
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Oo]bj/
+[Mm]emoryCaptures/
+Assets/AssetStoreTools*
+
+# User-specific
+UserSettings/
+*.csproj
+*.sln
+*.unityproj
+*.pidb
+*.user
+*.userprefs
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
