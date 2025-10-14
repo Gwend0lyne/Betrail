@@ -622,6 +622,10 @@ GameObject:
   m_Component:
   - component: {fileID: 96951135}
   - component: {fileID: 96951136}
+  - component: {fileID: 96951138}
+  - component: {fileID: 96951137}
+  - component: {fileID: 96951140}
+  - component: {fileID: 96951139}
   m_Layer: 5
   m_Name: Walls-area
   m_TagString: Untagged
@@ -638,7 +642,7 @@ RectTransform:
   m_GameObject: {fileID: 96951134}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 12.9231825, y: 4.1626, z: 1}
+  m_LocalScale: {x: 1, y: 0.5465658, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 480015140}
@@ -646,8 +650,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 100, y: 100}
+  m_AnchoredPosition: {x: -16.719, y: -0.00038098}
+  m_SizeDelta: {x: 1300.086, y: 958}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &96951136
 MonoBehaviour:
@@ -663,8 +667,75 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   wallPrefab: {fileID: 1943255471990474610, guid: 9fa756c72ba70ba40b29e4f1e1c3e3a4, type: 3}
   wallThickness: 3
-  cheatArmed: 0
-  toggleCheatKey: 99
+--- !u!114 &96951137
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 0.21960786, g: 0.21960786, b: 0.21960786, a: 0.72156864}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 0}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &96951138
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_CullTransparentMesh: 1
+--- !u!114 &96951139
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d07edf8cb21c7fa468c2cd938c46b8dc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  fillColor: {r: 0, g: 0.52156866, b: 1, a: 0}
+  dummyThickness: 1
+--- !u!114 &96951140
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 09e39383e51d97444955f411f7b0d91b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 0}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  _points: []
 --- !u!1 &116921330
 GameObject:
   m_ObjectHideFlags: 0
@@ -4186,7 +4257,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1686649743185527456, guid: d733c6cc53e1a5448a73396f6ca60ca4, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 6.83
+      value: 7.29
       objectReference: {fileID: 0}
     - target: {fileID: 1686649743185527456, guid: d733c6cc53e1a5448a73396f6ca60ca4, type: 3}
       propertyPath: m_LocalRotation.w
@@ -5328,7 +5399,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1686649743185527456, guid: d733c6cc53e1a5448a73396f6ca60ca4, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -7.03
+      value: -7.2
       objectReference: {fileID: 0}
     - target: {fileID: 1686649743185527456, guid: d733c6cc53e1a5448a73396f6ca60ca4, type: 3}
       propertyPath: m_LocalRotation.w

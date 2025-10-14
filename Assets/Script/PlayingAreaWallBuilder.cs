@@ -1,111 +1,90 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-
-// New Input System
-using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.EnhancedTouch;
 using UITouch = UnityEngine.InputSystem.EnhancedTouch.Touch;
 using TouchPhaseNew = UnityEngine.InputSystem.TouchPhase;
 
 [RequireComponent(typeof(RectTransform))]
-public class PlayingAreaWallBuilder : MonoBehaviour,
-    IPointerDownHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
+[RequireComponent(typeof(Image))]
+public class PlayingAreaWallBuilder : MonoBehaviour
 {
     [Header("Wall")]
-    public RectTransform wallPrefab;
-    public float wallThickness = 10f;
-
-    [Header("Cheat (souris)")]
-    public bool cheatArmed = false;             // capture 2 clics
-    public KeyCode toggleCheatKey = KeyCode.C;  // touche pour armer/désarmer
+    public RectTransform wallPrefab;  // Prefab UI du mur
+    public float wallThickness = 10f; // Épaisseur du mur
 
     private RectTransform area;
     private Canvas canvas;
     private Camera uiCam;
-
-    // Mur unique
     private RectTransform currentWall;
 
-    // ---- Souris (cheat) ----
-    private int mouseOwnerPointerId = int.MinValue; // pointerId du 2e clic
-    private bool mouseDragActive = false;
-    private readonly List<Vector2> cheatClicks = new List<Vector2>(2);
-
-    // ---- Tactile séquentiel ----
-    private int firstTouchId  = -1;   // -1 = aucun
+    // Gestion multitouch séquentielle
+    private int firstTouchId = -1;
     private int secondTouchId = -1;
-    private bool wallFromTouch = false;
 
-    void OnEnable() => EnhancedTouchSupport.Enable();
+    void OnEnable()
+    {
+        EnhancedTouchSupport.Enable();
+        TouchSimulation.Disable(); // Empêche la souris d'être vue comme un "touch"
+    }
+
     void OnDisable() => EnhancedTouchSupport.Disable();
 
     void Awake()
     {
-        area   = GetComponent<RectTransform>();
+        area = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
-        uiCam  = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
-               ? canvas.worldCamera : null;
+        uiCam = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            ? canvas.worldCamera
+            : null;
+
+        // S’assurer que la zone capte les touches
+        var img = GetComponent<Image>();
+        if (img) img.raycastTarget = true;
     }
 
     void Update()
     {
-        // Toggle cheat
-        if (Keyboard.current != null && Keyboard.current.cKey.wasPressedThisFrame)
-        {
-            cheatArmed = !cheatArmed;
-            cheatClicks.Clear();
-            Debug.Log(cheatArmed ? "Cheat ARMÉ : cliquez 2 fois dans la zone." : "Cheat DÉSARMÉ.");
-        }
-
         HandleTouchesSequential();
         UpdateWallWhileBothTouchesHeld();
     }
 
-    // ================== TACTILE : séquentiel ==================
+    // ----- Logique tactile -----
     private void HandleTouchesSequential()
     {
-        // 1) Enregistrer un premier doigt s'il commence dans la zone (si pas déjà pris)
-        foreach (var t in UITouch.activeTouches)
+        // 1) Premier doigt
+        if (firstTouchId == -1)
         {
-            if (t.phase == TouchPhaseNew.Began && firstTouchId == -1)
+            foreach (var t in UITouch.activeTouches)
             {
-                if (IsInArea(t.screenPosition))
-                {
-                    firstTouchId = t.touchId;
-                    // On attend le second plus tard
-                    break;
-                }
+                if (t.phase != TouchPhaseNew.Began) continue;
+                if (!IsInArea(t.screenPosition)) continue;
+
+                firstTouchId = t.touchId;
+                break;
             }
         }
 
-        // 2) Enregistrer un second doigt quand il arrive (si on a déjà le premier)
+        // 2) Deuxième doigt
         if (firstTouchId != -1 && secondTouchId == -1)
         {
             foreach (var t in UITouch.activeTouches)
             {
-                if (t.phase == TouchPhaseNew.Began && t.touchId != firstTouchId)
-                {
-                    if (IsInArea(t.screenPosition))
-                    {
-                        secondTouchId = t.touchId;
+                if (t.phase != TouchPhaseNew.Began) continue;
+                if (t.touchId == firstTouchId) continue;
+                if (!IsInArea(t.screenPosition)) continue;
 
-                        // Créer le mur entre les deux positions actuelles
-                        var aLocal = ScreenToLocal(GetTouchScreenPos(firstTouchId));
-                        var bLocal = ScreenToLocal(GetTouchScreenPos(secondTouchId));
-                        CreateOrReplaceWall(aLocal, bLocal);
+                secondTouchId = t.touchId;
 
-                        wallFromTouch = true;
-                        // le drag tactile se fait en bougeant les doigts (voir UpdateWallWhileBothTouchesHeld)
-                        break;
-                    }
-                }
+                Vector2 aLocal = ScreenToLocal(GetTouchScreenPos(firstTouchId));
+                Vector2 bLocal = ScreenToLocal(GetTouchScreenPos(secondTouchId));
+                CreateOrReplaceWall(aLocal, bLocal);
+                break;
             }
         }
 
-        // 3) Si le mur tactile existe, supprimer dès qu’un des deux doigts est levé
-        if (wallFromTouch && currentWall != null)
+        // 3) Supprimer si un des doigts est levé
+        if (currentWall != null)
         {
             bool aAlive = IsTouchAlive(firstTouchId);
             bool bAlive = IsTouchAlive(secondTouchId);
@@ -113,107 +92,55 @@ public class PlayingAreaWallBuilder : MonoBehaviour,
             {
                 Destroy(currentWall.gameObject);
                 currentWall = null;
-                ResetTouchState();
-                Debug.Log("Mur supprimé (un doigt levé).");
+                firstTouchId = -1;
+                secondTouchId = -1;
             }
         }
     }
 
-    // Pendant que les deux doigts sont posés, le mur suit leurs positions (drag “naturel”)
     private void UpdateWallWhileBothTouchesHeld()
     {
-        if (!wallFromTouch || currentWall == null) return;
+        if (currentWall == null) return;
         if (!IsTouchAlive(firstTouchId) || !IsTouchAlive(secondTouchId)) return;
 
         Vector2 aLocal = ScreenToLocal(GetTouchScreenPos(firstTouchId));
         Vector2 bLocal = ScreenToLocal(GetTouchScreenPos(secondTouchId));
+        ApplyWallGeometry(currentWall, aLocal, bLocal, wallThickness);
+    }
 
+    // ----- Création / MàJ -----
+    private void CreateOrReplaceWall(Vector2 aLocal, Vector2 bLocal)
+    {
+        if (wallPrefab == null)
+        {
+            Debug.LogWarning("⚠️ Wall Prefab non assigné !");
+            return;
+        }
+
+        if (currentWall != null)
+            Destroy(currentWall.gameObject);
+
+        currentWall = Instantiate(wallPrefab, area);
+        NormalizeWallRect(currentWall);
+        ApplyWallGeometry(currentWall, aLocal, bLocal, wallThickness);
+
+        var img = currentWall.GetComponent<Image>();
+        if (img) img.raycastTarget = true;
+    }
+
+    private void ApplyWallGeometry(RectTransform wall, Vector2 aLocal, Vector2 bLocal, float thickness)
+    {
         Vector2 mid = (aLocal + bLocal) * 0.5f;
         Vector2 delta = bLocal - aLocal;
         float length = delta.magnitude;
-        float angle  = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
-
-        currentWall.anchoredPosition = mid;
-        currentWall.sizeDelta = new Vector2(length, wallThickness);
-        currentWall.localRotation = Quaternion.Euler(0, 0, angle);
-    }
-
-    // ================== CHEAT : 2 clics souris ==================
-    public void OnPointerDown(PointerEventData eventData)
-    {
-        if (!cheatArmed) return;
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(area, eventData.position, eventData.pressEventCamera, out var local))
-            return;
-
-        cheatClicks.Add(local);
-
-        if (cheatClicks.Count >= 2)
-        {
-            mouseOwnerPointerId = eventData.pointerId; // 2e clic = propriétaire
-            CreateOrReplaceWall(cheatClicks[0], cheatClicks[1]);
-
-            cheatClicks.Clear();
-            cheatArmed = false;
-            wallFromTouch = false; // on est en mode souris
-            Debug.Log("Cheat consommé : 2e clic maintenu = drag ; relâche = suppression.");
-        }
-    }
-
-    public void OnBeginDrag(PointerEventData eventData)
-    {
-        if (currentWall == null) return;
-        if (eventData.pointerId == mouseOwnerPointerId && mouseOwnerPointerId != int.MinValue)
-            mouseDragActive = true;
-    }
-
-    public void OnDrag(PointerEventData eventData)
-    {
-        if (!mouseDragActive || currentWall == null) return;
-        float k = (canvas != null && canvas.scaleFactor != 0f) ? canvas.scaleFactor : 1f;
-        currentWall.anchoredPosition += eventData.delta / k;
-    }
-
-    public void OnEndDrag(PointerEventData eventData)
-    {
-        if (currentWall == null) return;
-        if (mouseDragActive && eventData.pointerId == mouseOwnerPointerId && mouseOwnerPointerId != int.MinValue)
-        {
-            Destroy(currentWall.gameObject);
-            currentWall = null;
-            mouseDragActive = false;
-            mouseOwnerPointerId = int.MinValue;
-            Debug.Log("Mur supprimé (relâche du 2e clic souris).");
-        }
-    }
-
-    // ================== Utilitaires ==================
-    private void CreateOrReplaceWall(Vector2 aLocal, Vector2 bLocal)
-    {
-        if (wallPrefab == null) { Debug.LogWarning("Wall Prefab non assigné !"); return; }
-        if (currentWall != null) Destroy(currentWall.gameObject);
-
-        var wall = Instantiate(wallPrefab, area);
-        currentWall = wall;
-
-        Vector2 mid   = (aLocal + bLocal) * 0.5f;
-        Vector2 delta = bLocal - aLocal;
-        float length  = delta.magnitude;
-        float angle   = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+        float angle = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
 
         wall.anchoredPosition = mid;
-        wall.sizeDelta = new Vector2(length, wallThickness);
         wall.localRotation = Quaternion.Euler(0, 0, angle);
-        wall.SetAsLastSibling();
-
-        // Pour que le mur puisse recevoir des raycasts (utile si tu veux aussi le drag tactile directement)
-        var img = wall.GetComponent<Image>();
-        if (img != null) img.raycastTarget = true;
-
-        var cg = wall.GetComponent<CanvasGroup>();
-        if (cg == null) cg = wall.gameObject.AddComponent<CanvasGroup>();
-        cg.blocksRaycasts = true;
+        wall.sizeDelta = new Vector2(length, thickness);
     }
 
+    // ----- Utilitaires -----
     private bool IsInArea(Vector2 screenPos) =>
         RectTransformUtility.RectangleContainsScreenPoint(area, screenPos, uiCam);
 
@@ -238,10 +165,11 @@ public class PlayingAreaWallBuilder : MonoBehaviour,
         return false;
     }
 
-    private void ResetTouchState()
+    private void NormalizeWallRect(RectTransform wall)
     {
-        firstTouchId  = -1;
-        secondTouchId = -1;
-        wallFromTouch = false;
+        wall.SetParent(area, false);
+        wall.anchorMin = wall.anchorMax = new Vector2(0.5f, 0.5f);
+        wall.pivot = new Vector2(0.5f, 0.5f);
+        wall.localScale = Vector3.one;
     }
 }
