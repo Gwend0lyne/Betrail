@@ -1,49 +1,134 @@
+using System.Collections;
 using UnityEngine;
 
 public class MoveLeft : MonoBehaviour
 {
     [Header("Source de la vitesse")]
-    public PanelDuo source;                 // % piloté par ton UI
+    public PanelDuo source;                        // glisse ici ton PanelDuo
 
     [Header("Mapping vitesse")]
+    [Tooltip("Vitesse monde à 100% (unités/s).")]
     public float maxWorldSpeed = 5f;
+    [Tooltip("Courbe de réponse: x = pourcentage (0..1), y = facteur (0..1).")]
     public AnimationCurve response = AnimationCurve.Linear(0f, 0f, 1f, 1f);
 
-    [Header("Facteur externe (ralentis/stop)")]
-    [Range(0f, 1f)] public float externalFactor = 1f;   // 1 = vitesse normale, 0 = stop
+    [Header("Ralentissement ABSOLU (ex: -30 unités/s)")]
+    [Tooltip("Offset soustrait à la vitesse (unités/s). Revient à 0 après la durée.")]
+    public float slowOffset = 0f;                  // >0 = enlève des unités/s
+    Coroutine slowCo;
 
-    public float CurrentSpeed { get; private set; }      // vitesse monde instantanée (u/s)
+    // ----- Tangage -----
+    public enum TiltAxis { PitchX, YawY, RollZ }   // choisis l’axe qui donne “gauche↔droite”
+    [Header("Tangage (visuel)")]
+    public Transform tiltTarget;                   // null => transform
+    public TiltAxis tiltAxis = TiltAxis.RollZ;     // par défaut: Roll Z = gauche/droite classique
+    public float tiltReturnSpeed = 6f;             // retour vers la rotation d’origine
+    Coroutine swayCo;
+    Quaternion tiltInitialLocalRot;                // rotation locale de référence
 
-    Coroutine slowdownCo;
+    [Header("Vie (optionnel)")]
+    public float maxHealth = 100f;
+    public float currentHealth = 100f;
+
+    // Pause/Resume
+    bool paused = false;
+    public bool IsPaused => paused;
+
+    /// <summary>Vitesse monde appliquée ce frame (unités/s vers la gauche).</summary>
+    public float CurrentSpeed { get; private set; }
+
+    void Awake()
+    {
+        if (!tiltTarget) tiltTarget = transform;
+        tiltInitialLocalRot = tiltTarget.localRotation;
+
+        currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
 
     void Update()
     {
-        if (!source) return;
+        if (!source)
+        {
+            CurrentSpeed = 0f;
+            return;
+        }
 
-        float pct01  = Mathf.Clamp01(source.SpeedPercent / 100f);
-        float factor = response.Evaluate(pct01);
+        // 0..1 depuis l’aiguille lissée
+        float pct01 = Mathf.Clamp01(source.SpeedPercent / 100f);
+        float baseFactor = response.Evaluate(pct01);          // 0..1
+        float baseSpeed  = maxWorldSpeed * baseFactor;        // unités/s
 
-        CurrentSpeed = maxWorldSpeed * factor * externalFactor;
-        transform.position += Vector3.left * CurrentSpeed * Time.deltaTime;
+        float v = paused ? 0f : Mathf.Max(0f, baseSpeed - slowOffset); // soustraction ABSOLUE
+        CurrentSpeed = v;
+
+        transform.position += Vector3.left * v * Time.deltaTime;
+
+        // retour du tilt vers la rotation d’origine si pas d’oscillation en cours
+        if (swayCo == null && tiltTarget)
+        {
+            tiltTarget.localRotation = Quaternion.Slerp(
+                tiltTarget.localRotation, tiltInitialLocalRot, Time.deltaTime * tiltReturnSpeed);
+        }
     }
 
-    // ---- API pilotée par le gameplay ----
-    public void Pause() => externalFactor = 0f;
+    // ---------- API jeu ----------
+    public void Pause()  => paused = true;
+    public void Resume() => paused = false;
 
-    public void Resume() => externalFactor = 1f;
-
-    public void ApplySlowdown(float factor, float duration)
+    public void ApplyDamage(float amount)
     {
-        if (slowdownCo != null) StopCoroutine(slowdownCo);
-        slowdownCo = StartCoroutine(SlowdownRoutine(factor, duration));
+        currentHealth = Mathf.Max(0f, currentHealth - Mathf.Max(0f, amount));
+        Debug.Log($"[MoveLeft] -{amount} HP → {currentHealth}/{maxHealth}");
     }
 
-    System.Collections.IEnumerator SlowdownRoutine(float factor, float duration)
+    /// <summary>
+    /// Soustrait 'amount' unités/s à la vitesse pendant 'duration' secondes.
+    /// Ex: amount=30 → 40 devient 10 (sans passer sous 0).
+    /// </summary>
+    public void ApplySlowdown(float amount, float duration)
     {
-        // applique un facteur <1, puis revient à 1 au bout de 'duration'
-        externalFactor = Mathf.Clamp01(factor);
+        amount = Mathf.Max(0f, amount);
+        if (slowCo != null) StopCoroutine(slowCo);
+        slowCo = StartCoroutine(CoSlowdown(amount, duration));
+    }
+
+    IEnumerator CoSlowdown(float amount, float duration)
+    {
+        slowOffset = amount;
         yield return new WaitForSeconds(duration);
-        externalFactor = 1f;
-        slowdownCo = null;
+        slowOffset = 0f;
+        slowCo = null;
+    }
+
+    /// <summary>Oscille doucement pendant 'duration' autour de l’axe choisi.</summary>
+    public void ApplySway(float amplitudeDeg, float duration, float frequencyHz = 1.0f)
+    {
+        if (!tiltTarget || amplitudeDeg <= 0f || duration <= 0f) return;
+        if (swayCo != null) StopCoroutine(swayCo);
+        swayCo = StartCoroutine(CoSway(amplitudeDeg, duration, frequencyHz));
+    }
+
+    IEnumerator CoSway(float ampDeg, float duration, float freqHz)
+    {
+        float t = 0f;
+
+        // vecteur d’axe local selon le choix
+        Vector3 axis =
+            tiltAxis == TiltAxis.PitchX ? Vector3.right :
+            tiltAxis == TiltAxis.YawY   ? Vector3.up    :
+                                          Vector3.forward;  // RollZ par défaut
+
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float angle = Mathf.Sin(t * Mathf.PI * 2f * freqHz) * ampDeg;
+            // rotation = rotation d’origine * rotation d’angle autour de l’axe local choisi
+            tiltTarget.localRotation = tiltInitialLocalRot * Quaternion.AngleAxis(angle, axis);
+            yield return null;
+        }
+
+        // fin: revient proprement à la rotation initiale
+        tiltTarget.localRotation = tiltInitialLocalRot;
+        swayCo = null;
     }
 }

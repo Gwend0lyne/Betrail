@@ -202,4 +202,13 @@ public class PanelDuo : MonoBehaviour
         Vector2 v = posEcran - centre;
         return Mathf.Atan2(v.y, v.x) * Mathf.Rad2Deg;
     }
+    
+    // --- Coup instantané sur la vitesse/jauge (ex: -30%) ---
+    public void ApplyInstantPenalty(float dropPercent)
+    {
+        // on enlève 'dropPercent' au pourcentage courant
+        speedPercent = Mathf.Clamp(speedPercent - dropPercent, 0f, 100f);
+        uiPercent    = speedPercent; // l’aiguille suit immédiatement
+    }
+
 }
