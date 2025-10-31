@@ -8,11 +8,11 @@ TagManager:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Ignore lights
   - Water
   - UI
-  - 
-  - 
+  - Ambiant light layers
+  - Ambiant light wagon
   - 
   - 
   - 
