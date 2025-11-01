@@ -8,6 +8,12 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
     public int ActivePointerId => _activePointerId;
     public Vector2 ScreenPosition => _screenPos;
 
+    [Header("Debug")]
+    [Tooltip("Active les logs détaillant les interactions sur la plateforme tangible.")]
+    public bool enableDebugLogs = true;
+
+    const string LogPrefix = "[AimPad3D]";
+
     bool _active = false;
     int _activePointerId = -1;
     Vector2 _screenPos;
@@ -19,12 +25,14 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
         _active = true;
         _activePointerId = e.pointerId;
         _screenPos = e.position;
+        LogDebug($"OnPointerDown -> pointerId={_activePointerId}, screenPos={_screenPos}");
     }
 
     public void OnDrag(PointerEventData e)
     {
         if (!_active || e.pointerId != _activePointerId) return;
         _screenPos = e.position;
+        LogDebug($"OnDrag -> pointerId={e.pointerId}, screenPos={_screenPos}");
     }
 
     public void OnPointerUp(PointerEventData e)
@@ -32,5 +40,12 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
         if (!_active || e.pointerId != _activePointerId) return;
         _active = false;
         _activePointerId = -1;
+        LogDebug($"OnPointerUp -> pointerId={e.pointerId}");
+    }
+
+    void LogDebug(string message)
+    {
+        if (!enableDebugLogs) return;
+        Debug.Log($"{LogPrefix} [{name}] {message}", this);
     }
 }

@@ -28,12 +28,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     [Header("Aiming Zone")]
     public AimPad3D aimPad;                     // zone dédiée pour la visée (évite les conflits de touch)
 
-    [Header("Debug")]
-    [Tooltip("Active l'affichage de logs détaillés dans la console pour aider au debug.")]
-    public bool enableDebugLogs = true;
-
-    const string LogPrefix = "[HeliCanonFloat]";
-
     // états runtime
     bool held = false;          // doigt #1 maintient le canon ?
     int heldPointerId = -1;     // id du doigt #1
@@ -62,12 +56,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         baseYawWorld = YawOf(cannonPivot);
 
         if (textExplode) textExplode.SetActive(false);
-
-        LogDebug($"Awake -> startPos={startPos}, cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}");
-        if (!cannonPivot) LogWarning("cannonPivot n'est pas assigné.");
-        if (!muzzle) LogWarning("muzzle n'est pas assigné.");
-        if (!textExplode) LogWarning("textExplode n'est pas assigné.");
-        if (!aimPad) LogWarning("aimPad n'est pas assigné.");
     }
 
     void Update()
@@ -105,7 +93,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         // Le clamp se fait autour de baseYawWorld (référence centrale mémorisée à l'Awake).
 
         if (textExplode) textExplode.SetActive(true);
-        LogDebug($"OnPointerDown -> pointerId={heldPointerId}, aimYLevel={aimYLevel:F2}");
     }
 
     public void OnPointerUp(PointerEventData e)
@@ -129,7 +116,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
                     }
                 }
             }
-            LogDebug($"OnPointerUp ignoré -> pointerId={e.pointerId}, heldPointerId={heldPointerId}");
             return;
         }
 
@@ -139,7 +125,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         held = false;
         heldPointerId = -1;
         if (textExplode) textExplode.SetActive(false);
-        LogDebug("OnPointerUp -> arrêt du laser et réinitialisation de l'état held.");
     }
 
     // ---------- Visée via la zone dédiée ----------
@@ -175,26 +160,25 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     // ---------- Tir (appelé par le texte via FireOnTouchDown3D) ----------
     public void Fire()
     {
-        LogDebug("Fire() appelé.");
         AutoAssignReferences(includeInactive: false);
 
         if (!laserPrefab)
         {
-            LogWarning("Aucun prefab de laser n'est assigné.");
+            Debug.LogWarning("Aucun prefab de laser n'est assigné sur " + name, this);
             return;
         }
 
         Transform pivot = cannonPivot ? cannonPivot : transform;
         if (!pivot)
         {
-            LogWarning("Aucun pivot de canon trouvé.");
+            Debug.LogWarning("Aucun pivot de canon trouvé pour " + name, this);
             return;
         }
 
         Transform muzzleTransform = muzzle ? muzzle : pivot;
         if (!muzzle)
         {
-            LogWarning("Aucun muzzle assigné. Utilisation du pivot comme origine.");
+            Debug.LogWarning("Aucun muzzle assigné pour " + name + ". Utilisation du pivot comme origine.", this);
         }
 
         if (textExplode) textExplode.SetActive(false);
@@ -203,7 +187,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
 
         activeBeam = Instantiate(laserPrefab);
-        LogDebug($"Fire() -> laser instancié '{laserPrefab.name}' (pivot={NameOrNone(pivot)}, muzzle={NameOrNone(muzzleTransform)})");
         activeBeam.Begin(
             muzzleTransform,
             pivot,
@@ -230,15 +213,11 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
     void AutoAssignReferences(bool includeInactive)
     {
-        LogDebug($"AutoAssignReferences(includeInactive={includeInactive}) -> start (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)})");
-
         Transform tangibleRoot = FindChildContaining(transform, "tangible", includeInactive);
         Transform searchRoot = tangibleRoot ? tangibleRoot : transform;
-        LogDebug($"AutoAssign -> tangibleRoot={NameOrNone(tangibleRoot)}, searchRoot={NameOrNone(searchRoot)}");
 
         if (!cannonPivot || cannonPivot == transform)
         {
-            var before = cannonPivot;
             Transform candidate = FindChildContaining(searchRoot, "pivot", includeInactive);
             if (!candidate && searchRoot != transform)
                 candidate = FindChildContaining(transform, "pivot", includeInactive);
@@ -247,24 +226,11 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
                 candidate = FindChildContaining(searchRoot, "laser", includeInactive);
 
             if (candidate)
-            {
                 cannonPivot = candidate;
-                if (before != cannonPivot)
-                    LogDebug($"AutoAssign -> cannonPivot assigné à {NameOrNone(cannonPivot)}");
-            }
-            else if (!cannonPivot || cannonPivot == transform)
-            {
-                LogWarning("AutoAssign -> aucun cannonPivot trouvé.");
-            }
-        }
-        else
-        {
-            LogDebug($"AutoAssign -> cannonPivot déjà assigné ({NameOrNone(cannonPivot)})");
         }
 
         if (!muzzle)
         {
-            var before = muzzle;
             Transform muzzleSearchRoot = cannonPivot ? cannonPivot : searchRoot;
             muzzle = FindChildContaining(muzzleSearchRoot, "muzzle", includeInactive);
             if (!muzzle)
@@ -273,14 +239,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
                 muzzle = FindFirstRendererLeaf(muzzleSearchRoot, includeInactive);
             if (!muzzle && muzzleSearchRoot != transform)
                 muzzle = FindFirstRendererLeaf(transform, includeInactive);
-            if (muzzle && before != muzzle)
-                LogDebug($"AutoAssign -> muzzle assigné à {NameOrNone(muzzle)}");
-            if (!muzzle)
-                LogWarning("AutoAssign -> aucun muzzle trouvé.");
-        }
-        else
-        {
-            LogDebug($"AutoAssign -> muzzle déjà assigné ({NameOrNone(muzzle)})");
         }
 
         if (!textExplode)
@@ -293,37 +251,16 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             {
                 textExplode = fire.gameObject;
                 if (!fire.owner) fire.owner = this;
-                LogDebug($"AutoAssign -> textExplode assigné à {textExplode.name} (owner mis à jour: {fire.owner == this})");
-            }
-            else
-            {
-                LogWarning("AutoAssign -> aucun FireOnTouchDown3D trouvé pour textExplode.");
             }
         }
         else
         {
             var fire = textExplode.GetComponent<FireOnTouchDown3D>();
-            if (fire && !fire.owner)
-            {
-                fire.owner = this;
-                LogDebug("AutoAssign -> owner de textExplode mis à jour.");
-            }
+            if (fire && !fire.owner) fire.owner = this;
         }
 
         if (!aimPad)
-        {
             aimPad = GetComponentInChildren<AimPad3D>(includeInactive);
-            if (aimPad)
-                LogDebug($"AutoAssign -> aimPad assigné à {NameOrNone(aimPad)}");
-            else
-                LogWarning("AutoAssign -> aucun AimPad3D trouvé.");
-        }
-        else
-        {
-            LogDebug($"AutoAssign -> aimPad déjà assigné ({NameOrNone(aimPad)})");
-        }
-
-        LogDebug($"AutoAssign -> résultat final (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)})");
     }
 
     Transform FindFirstRendererLeaf(Transform root, bool includeInactive)
@@ -372,23 +309,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         if (f.sqrMagnitude < 1e-6f) return t.rotation.eulerAngles.y;
         return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
     }
-
-    void LogDebug(string message)
-    {
-        if (!enableDebugLogs) return;
-        Debug.Log($"{LogPrefix} [{name}] {message}", this);
-    }
-
-    void LogWarning(string message)
-    {
-        if (!enableDebugLogs) return;
-        Debug.LogWarning($"{LogPrefix} [{name}] {message}", this);
-    }
-
-    static string NameOrNone(UnityEngine.Object obj)
-    {
-        return obj ? obj.name : "null";
-    }
 }
+
 
 
