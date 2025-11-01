@@ -34,10 +34,34 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
     const string LogPrefix = "[HeliCanonFloat]";
 
+    [Header("Animation")]
+    [Tooltip("Transform visuel du canon qui doit osciller autour de Z lorsqu'il est à l'arrêt.")]
+    public Transform laserVisualRoot;
+    [Tooltip("Transform de l'hélice/ventilateur à faire tourner autour de Z en continu.")]
+    public Transform laserFan;
+    [Tooltip("Optionnel: Transform servant d'ancre pour le pivot de visée. Si laissé vide, on cherche Cylinder.005, puis le fan.")]
+    public Transform aimPivotMarker;
+    public float fanSpinSpeed = 540f;
+    public float idleOscillationAmplitude = 10f;
+    public float idleOscillationFrequency = 1.2f;
+    public float idleOscillationReturnSpeed = 6f;
+
     // états runtime
     bool held = false;          // doigt #1 maintient le canon ?
     int heldPointerId = -1;     // id du doigt #1
     float aimYLevel;            // plan horizontal de visée
+
+    public bool IsHeld => held;
+    public int CurrentHeldPointerId => heldPointerId;
+
+    Transform cachedLaserVisualRoot;
+    Transform cachedLaserFan;
+    Transform laserYawPivot;
+    Quaternion laserVisualBaseLocalRotation = Quaternion.identity;
+    Quaternion laserFanBaseLocalRotation = Quaternion.identity;
+    float fanSpinAngle;
+    float idleOscillationPhaseOffset;
+    float aimYawVelocity;
 
     // référence centrale (milieu)
     float baseYawWorld;         // Yaw pris à l'Awake = "tout droit"
@@ -63,15 +87,22 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
         if (textExplode) textExplode.SetActive(false);
 
-        LogDebug($"Awake -> startPos={startPos}, cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}");
+        idleOscillationPhaseOffset = UnityEngine.Random.value * Mathf.PI * 2f;
+        UpdateAnimationDefaultsIfNeeded(force: true);
+
+        LogDebug($"Awake -> startPos={startPos}, cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, yawPivot={NameOrNone(laserYawPivot)}");
         if (!cannonPivot) LogWarning("cannonPivot n'est pas assigné.");
         if (!muzzle) LogWarning("muzzle n'est pas assigné.");
         if (!textExplode) LogWarning("textExplode n'est pas assigné.");
         if (!aimPad) LogWarning("aimPad n'est pas assigné.");
+        if (!laserVisualRoot) LogWarning("laserVisualRoot n'est pas assigné (oscillation idle désactivée).");
+        if (!laserFan) LogWarning("laserFan n'est pas assigné (rotation désactivée).");
     }
 
     void Update()
     {
+        AnimateVisuals();
+
         if (held)
         {
             if (textExplode && !textExplode.activeSelf) textExplode.SetActive(true);
@@ -79,7 +110,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             return;              // pas de déplacement pendant le hold
         }
 
-        // filet : si plus en hold, assurer l’arrêt du laser + cacher le texte
+        // filet : si plus en hold, assurer l'arr�t du laser + cacher le texte
         if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
         if (textExplode && textExplode.activeSelf) textExplode.SetActive(false);
 
@@ -97,19 +128,19 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     // ---------- Maintien sur le canon ----------
     public void OnPointerDown(PointerEventData e)
     {
-        held = true;
-        heldPointerId = e.pointerId;
-        aimYLevel = cannonPivot.position.y;
+        if (TryStartHold(e.pointerId, "canon"))
+            return;
 
-        // IMPORTANT : on NE recentre PAS le pivot.
-        // Le clamp se fait autour de baseYawWorld (référence centrale mémorisée à l'Awake).
-
-        if (textExplode) textExplode.SetActive(true);
-        LogDebug($"OnPointerDown -> pointerId={heldPointerId}, aimYLevel={aimYLevel:F2}");
+        LogDebug($"OnPointerDown ignoré -> pointerId={e.pointerId}, heldPointerId={heldPointerId}");
     }
 
     public void OnPointerUp(PointerEventData e)
     {
+        if (!held)
+        {
+            LogDebug($"OnPointerUp ignoré -> aucun hold actif pour pointerId={e.pointerId}");
+            return;
+        }
         // si ce n'est pas le doigt #1 : ignorer un relâchement fait au-dessus du texte
         if (e.pointerId != heldPointerId)
         {
@@ -134,12 +165,77 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         }
 
         // Ici : doigt #1 se relâche → on coupe TOUT et on repart
+        TryEndHold(e.pointerId, "canon");
+    }
+
+    bool TryStartHold(int pointerId, string source)
+    {
+        if (held)
+        {
+            LogDebug($"TryStartHold ignoré ({source}) -> pointerId={pointerId}, déjà tenu par {heldPointerId}");
+            return false;
+        }
+
+        Transform pivot = cannonPivot ? cannonPivot : transform;
+        // IMPORTANT : on NE recentre PAS le pivot. Le clamp reste autour de baseYawWorld enregistré à l'Awake.
+        aimYLevel = pivot.position.y;
+
+        held = true;
+        heldPointerId = pointerId;
+
+        aimYawVelocity = 0f;
+
+        if (textExplode) textExplode.SetActive(true);
+        LogDebug($"Hold démarré via {source} -> pointerId={pointerId}, aimYLevel={aimYLevel:F2}");
+        return true;
+    }
+
+    bool TryEndHold(int pointerId, string source)
+    {
+        if (!held)
+        {
+            LogDebug($"TryEndHold ignoré ({source}) -> pointerId={pointerId}, aucun hold actif.");
+            return false;
+        }
+
+        if (pointerId != heldPointerId)
+        {
+            LogDebug($"TryEndHold ignoré ({source}) -> pointerId={pointerId}, tenu par {heldPointerId}");
+            return false;
+        }
+
         if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
 
         held = false;
         heldPointerId = -1;
+        aimYawVelocity = 0f;
+
         if (textExplode) textExplode.SetActive(false);
-        LogDebug("OnPointerUp -> arrêt du laser et réinitialisation de l'état held.");
+        LogDebug($"Hold terminé via {source} -> pointerId={pointerId}");
+        return true;
+    }
+
+    internal bool TryBeginHoldFromAimPad(AimPad3D pad, int pointerId)
+    {
+        return TryStartHold(pointerId, $"aimPad:{NameOrNone(pad)}");
+    }
+
+    internal void ReleaseHoldFromAimPad(AimPad3D pad, int pointerId)
+    {
+        TryEndHold(pointerId, $"aimPad:{NameOrNone(pad)}");
+    }
+
+    void AnimateVisuals()
+    {
+        float dt = Time.deltaTime;
+
+        if (laserFan)
+        {
+            fanSpinAngle = Mathf.Repeat(fanSpinAngle + fanSpinSpeed * dt, 360f);
+            laserFan.localRotation = laserFanBaseLocalRotation * Quaternion.AngleAxis(fanSpinAngle, Vector3.forward);
+        }
+
+        if (!laserVisualRoot) return;
     }
 
     // ---------- Visée via la zone dédiée ----------
@@ -168,8 +264,13 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         float delta = Mathf.DeltaAngle(baseYawWorld, targetYaw);
         float finalYaw = baseYawWorld + Mathf.Clamp(delta, -yawLimit, +yawLimit); // [-limit, +limit]
 
-        Quaternion targetRot = Quaternion.Euler(0f, finalYaw, 0f);
-        cannonPivot.rotation = Quaternion.Slerp(cannonPivot.rotation, targetRot, Time.deltaTime * aimSmoothing);
+        float smoothTime = aimSmoothing <= 0f ? 0f : 1f / aimSmoothing;
+        float currentYaw = cannonPivot.eulerAngles.y;
+        float smoothedYaw = smoothTime <= 0f
+            ? finalYaw
+            : Mathf.SmoothDampAngle(currentYaw, finalYaw, ref aimYawVelocity, smoothTime);
+
+        cannonPivot.rotation = Quaternion.Euler(0f, smoothedYaw, 0f);
     }
 
     // ---------- Tir (appelé par le texte via FireOnTouchDown3D) ----------
@@ -230,7 +331,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
     void AutoAssignReferences(bool includeInactive)
     {
-        LogDebug($"AutoAssignReferences(includeInactive={includeInactive}) -> start (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)})");
+        LogDebug($"AutoAssignReferences(includeInactive={includeInactive}) -> start (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)})");
 
         Transform tangibleRoot = FindChildContaining(transform, "tangible", includeInactive);
         Transform searchRoot = tangibleRoot ? tangibleRoot : transform;
@@ -323,7 +424,188 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             LogDebug($"AutoAssign -> aimPad déjà assigné ({NameOrNone(aimPad)})");
         }
 
-        LogDebug($"AutoAssign -> résultat final (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)})");
+        if (!laserVisualRoot)
+        {
+            Transform visualSearchRoot = cannonPivot ? cannonPivot : searchRoot;
+            Transform candidate = FindChildContaining(visualSearchRoot, "Laser_weapon", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(visualSearchRoot, "laser weapon", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(visualSearchRoot, "laserweapon", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(visualSearchRoot, "capsule", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(visualSearchRoot, "body", includeInactive);
+            if (!candidate)
+                candidate = FindFirstRendererLeaf(visualSearchRoot, includeInactive);
+            if (!candidate && visualSearchRoot != transform)
+                candidate = FindFirstRendererLeaf(transform, includeInactive);
+            if (candidate == laserFan)
+                candidate = null;
+
+            if (candidate)
+            {
+                laserVisualRoot = candidate;
+                LogDebug($"AutoAssign -> laserVisualRoot assigné à {NameOrNone(laserVisualRoot)}");
+            }
+            else
+            {
+                LogWarning("AutoAssign -> aucun laserVisualRoot trouvé.");
+            }
+        }
+        else
+        {
+            LogDebug($"AutoAssign -> laserVisualRoot déjà assigné ({NameOrNone(laserVisualRoot)})");
+        }
+
+        if (!laserFan)
+        {
+            Transform fanSearchRoot = cannonPivot ? cannonPivot : searchRoot;
+            Transform candidate = FindChildContaining(fanSearchRoot, "fan", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(fanSearchRoot, "propeller", includeInactive);
+            if (!candidate)
+                candidate = FindChildContaining(fanSearchRoot, "cube", includeInactive);
+            if (candidate == laserVisualRoot)
+                candidate = null;
+
+            if (candidate)
+            {
+                laserFan = candidate;
+                LogDebug($"AutoAssign -> laserFan assigné à {NameOrNone(laserFan)}");
+            }
+            else
+            {
+                LogWarning("AutoAssign -> aucun laserFan trouvé.");
+            }
+        }
+        else
+        {
+            LogDebug($"AutoAssign -> laserFan déjà assigné ({NameOrNone(laserFan)})");
+        }
+
+        if (aimPad && aimPad.owner != this)
+        {
+            aimPad.owner = this;
+            LogDebug($"AutoAssign -> aimPad.owner assigné à {NameOrNone(aimPad)}");
+        }
+
+        bool pivotAdjusted = EnsureLaserYawPivot(includeInactive);
+
+        LogDebug($"AutoAssign -> résultat final (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, yawPivot={NameOrNone(laserYawPivot)})");
+        UpdateAnimationDefaultsIfNeeded(force: pivotAdjusted);
+    }
+
+    void UpdateAnimationDefaultsIfNeeded(bool force = false)
+    {
+        if (force || laserVisualRoot != cachedLaserVisualRoot)
+        {
+            cachedLaserVisualRoot = laserVisualRoot;
+            laserVisualBaseLocalRotation = laserVisualRoot ? laserVisualRoot.localRotation : Quaternion.identity;
+        }
+
+        if (force || laserFan != cachedLaserFan)
+        {
+            cachedLaserFan = laserFan;
+            laserFanBaseLocalRotation = laserFan ? laserFan.localRotation : Quaternion.identity;
+            fanSpinAngle = 0f;
+        }
+    }
+
+    bool EnsureLaserYawPivot(bool includeInactive)
+    {
+        if (!laserVisualRoot)
+            return false;
+
+        Transform currentParent = laserVisualRoot.parent;
+        var comparison = StringComparison.OrdinalIgnoreCase;
+
+        if (currentParent && currentParent != transform)
+        {
+            bool parentLooksLikePivot = currentParent == laserYawPivot ||
+                                        currentParent.name.IndexOf("pivot", comparison) >= 0;
+            if (parentLooksLikePivot)
+            {
+                laserYawPivot = currentParent;
+                if (cannonPivot != laserYawPivot)
+                {
+                    cannonPivot = laserYawPivot;
+                    LogDebug($"AutoAssign -> cannonPivot aligné sur {NameOrNone(laserYawPivot)} (existant).");
+                }
+                return false;
+            }
+        }
+
+        if (!Application.isPlaying)
+        {
+            if (!cannonPivot || cannonPivot == transform)
+            {
+                Transform cylinder = FindChildContaining(laserVisualRoot, "cylinder.005", includeInactive);
+                if (!cylinder)
+                    cylinder = FindChildContaining(laserVisualRoot, "cylinder", includeInactive);
+
+                cannonPivot = cylinder ? cylinder : (currentParent ? currentParent : laserVisualRoot);
+                LogDebug($"AutoAssign -> cannonPivot assigné (éditeur) à {NameOrNone(cannonPivot)}.");
+            }
+            return false;
+        }
+
+        Transform pivotParent = currentParent ? currentParent : transform;
+
+        if (!laserYawPivot)
+        {
+            var pivotGO = new GameObject($"{laserVisualRoot.name}_YawPivot");
+            pivotGO.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+            laserYawPivot = pivotGO.transform;
+        }
+
+        Transform pivotMarker = aimPivotMarker ? aimPivotMarker : FindChildContaining(laserVisualRoot, "cylinder.005", includeInactive);
+        if (!pivotMarker)
+            pivotMarker = FindChildContaining(laserVisualRoot, "cylinder", includeInactive);
+
+        Vector3 pivotPosition = DetermineLaserPivotWorldPosition(includeInactive);
+        Quaternion pivotRotation = pivotMarker ? pivotMarker.rotation :
+                                   (laserFan ? laserFan.rotation : laserVisualRoot.rotation);
+
+        laserYawPivot.SetParent(pivotParent, worldPositionStays: false);
+        laserYawPivot.position = pivotPosition;
+        laserYawPivot.rotation = pivotRotation;
+
+        laserYawPivot.localScale = Vector3.one;
+
+        if (laserVisualRoot.parent != laserYawPivot)
+            laserVisualRoot.SetParent(laserYawPivot, worldPositionStays: true);
+
+        cannonPivot = laserYawPivot;
+        LogDebug($"AutoAssign -> yaw pivot positionné à {pivotPosition}");
+        return true;
+    }
+
+    Vector3 DetermineLaserPivotWorldPosition(bool includeInactive)
+    {
+        if (laserFan)
+            return laserFan.position;
+
+        Transform cylinder = FindChildContaining(laserVisualRoot, "Cylinder.005", includeInactive);
+        if (!cylinder)
+            cylinder = FindChildContaining(laserVisualRoot, "cylinder", includeInactive);
+        if (cylinder)
+            return cylinder.position;
+
+        if (laserVisualRoot)
+        {
+            var renderers = laserVisualRoot.GetComponentsInChildren<Renderer>(includeInactive);
+            if (renderers != null && renderers.Length > 0)
+            {
+                var bounds = renderers[0].bounds;
+                for (int i = 1; i < renderers.Length; i++)
+                    bounds.Encapsulate(renderers[i].bounds);
+                return bounds.center;
+            }
+            return laserVisualRoot.position;
+        }
+
+        return transform.position;
     }
 
     Transform FindFirstRendererLeaf(Transform root, bool includeInactive)
@@ -390,5 +672,3 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         return obj ? obj.name : "null";
     }
 }
-
-
