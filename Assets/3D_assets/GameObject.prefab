@@ -1,0 +1,57 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4560612549190583498
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6242378510414597815}
+  - component: {fileID: 7605848634820540710}
+  m_Layer: 0
+  m_Name: GameObject
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 2147483647
+  m_IsActive: 1
+--- !u!4 &6242378510414597815
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4560612549190583498}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -2.07, y: 29.939999, z: 0.9944132}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7605848634820540710
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4560612549190583498}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dd40b13d16ed744fa63443fd62d6d17, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cliffPrefab: {fileID: 919132149155446097, guid: d32cd06afcad65445a4ba7be053860d8, type: 3}
+  cliffPoolSize: 5
+  cliffSpacing: 40
+  cliffStartPosition: {x: 0, y: 23, z: 0}
+  cliffStartRotation: {x: -90, y: 0, z: 0}
+  lightsPrefab: {fileID: 0}
+  lightsPoolSize: 5
+  lightsSpacing: 40
+  lightsStartPosition: {x: 0, y: 0, z: 0}
+  lightsStartRotation: {x: 0, y: 0, z: 0}
+  targetCamera: {fileID: 0}

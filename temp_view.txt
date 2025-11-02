@@ -1,0 +1,315 @@
+using System;
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+[RequireComponent(typeof(Collider))] // pour recevoir les touches 3D
+public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
+{
+    [Header("Patrouille horizontale (monde)")]
+    public float minX = -11f, maxX = 0f, horizontalSpeed = 0.5f;
+
+    [Header("Flottement vertical")]
+    public float verticalAmplitude = 0.5f, verticalFrequency = 0.2f, verticalPhase = 0f;
+
+    [Header("Aiming")]
+    [Tooltip("Transform pivot qui ne fait que yaw (ex: 'PivotYaw').")]
+    public Transform cannonPivot;
+    public float aimSmoothing = 15f;
+    [Tooltip("Clamp autour de l'orientation de BASE (°).")]
+    public float yawLimit = 50f; // -50..+50
+
+    [Header("UI / Tir")]
+    public GameObject textExplode;              // objet 3D à toucher pour tirer (avec Collider)
+    public Transform muzzle;                    // bout du canon
+    public LaserBeamContinuous laserPrefab;     // prefab du visuel laser (LineRenderer + script)
+    public float fireRange = 30f;
+    public float fireDuration = 5f;
+
+    [Header("Aiming Zone")]
+    public AimPad3D aimPad;                     // zone dédiée pour la visée (évite les conflits de touch)
+
+    // états runtime
+    bool held = false;          // doigt #1 maintient le canon ?
+    int heldPointerId = -1;     // id du doigt #1
+    float aimYLevel;            // plan horizontal de visée
+
+    // référence centrale (milieu)
+    float baseYawWorld;         // Yaw pris à l'Awake = "tout droit"
+
+    // laser en cours
+    LaserBeamContinuous activeBeam;
+
+    // déplacement
+    Vector3 startPos; float x; int dir;
+
+    void Awake()
+    {
+        startPos = transform.position;
+        if (minX > maxX) { var t = minX; minX = maxX; maxX = t; }
+        x = Mathf.Clamp(startPos.x, minX, maxX);
+        dir = 1;
+
+        AutoAssignReferences(includeInactive: true);
+        if (!cannonPivot) cannonPivot = transform;
+
+        // référence centrale = orientation actuelle du prefab
+        baseYawWorld = YawOf(cannonPivot);
+
+        if (textExplode) textExplode.SetActive(false);
+    }
+
+    void Update()
+    {
+        if (held)
+        {
+            if (textExplode && !textExplode.activeSelf) textExplode.SetActive(true);
+            UpdateAimFromPad();  // vise via le pad (autre doigt)
+            return;              // pas de déplacement pendant le hold
+        }
+
+        // filet : si plus en hold, assurer l’arrêt du laser + cacher le texte
+        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+        if (textExplode && textExplode.activeSelf) textExplode.SetActive(false);
+
+        // déplacement va-et-vient
+        x += dir * horizontalSpeed * Time.deltaTime;
+        if (x >= maxX) { x = maxX; dir = -1; }
+        if (x <= minX) { x = minX; dir = +1; }
+
+        // flottement
+        float tt = Time.time;
+        float y = startPos.y + Mathf.Sin(2f * Mathf.PI * verticalFrequency * tt + verticalPhase) * verticalAmplitude;
+        transform.position = new Vector3(x, y, startPos.z);
+    }
+
+    // ---------- Maintien sur le canon ----------
+    public void OnPointerDown(PointerEventData e)
+    {
+        held = true;
+        heldPointerId = e.pointerId;
+        aimYLevel = cannonPivot.position.y;
+
+        // IMPORTANT : on NE recentre PAS le pivot.
+        // Le clamp se fait autour de baseYawWorld (référence centrale mémorisée à l'Awake).
+
+        if (textExplode) textExplode.SetActive(true);
+    }
+
+    public void OnPointerUp(PointerEventData e)
+    {
+        // si ce n'est pas le doigt #1 : ignorer un relâchement fait au-dessus du texte
+        if (e.pointerId != heldPointerId)
+        {
+            if (textExplode && textExplode.activeInHierarchy)
+            {
+                var cam = Camera.main;
+                if (cam)
+                {
+                    Ray ray = cam.ScreenPointToRay(e.position);
+                    if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
+                    {
+                        if (hit.collider && (hit.collider.gameObject == textExplode ||
+                                             hit.collider.transform.IsChildOf(textExplode.transform)))
+                        {
+                            return; // un autre doigt relâché sur le texte → on ignore
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // Ici : doigt #1 se relâche → on coupe TOUT et on repart
+        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+
+        held = false;
+        heldPointerId = -1;
+        if (textExplode) textExplode.SetActive(false);
+    }
+
+    // ---------- Visée via la zone dédiée ----------
+    void UpdateAimFromPad()
+    {
+        if (!aimPad || !aimPad.IsActive) return;
+
+        var cam = Camera.main; if (!cam) return;
+
+        Vector2 screenPos = aimPad.ScreenPosition;
+        Ray ray = cam.ScreenPointToRay(screenPos);
+
+        var plane = new Plane(Vector3.up, new Vector3(0f, aimYLevel, 0f));
+        if (!plane.Raycast(ray, out float dist)) return;
+
+        Vector3 hit = ray.GetPoint(dist);
+        Vector3 center = new Vector3(cannonPivot.position.x, aimYLevel, cannonPivot.position.z);
+
+        Vector3 v = hit - center; v.y = 0f;
+        if (v.sqrMagnitude < 1e-6f) return;
+
+        // Yaw voulu en monde
+        float targetYaw = Mathf.Atan2(v.x, v.z) * Mathf.Rad2Deg;
+
+        // Clamp autour de la référence centrale (baseYawWorld)
+        float delta = Mathf.DeltaAngle(baseYawWorld, targetYaw);
+        float finalYaw = baseYawWorld + Mathf.Clamp(delta, -yawLimit, +yawLimit); // [-limit, +limit]
+
+        Quaternion targetRot = Quaternion.Euler(0f, finalYaw, 0f);
+        cannonPivot.rotation = Quaternion.Slerp(cannonPivot.rotation, targetRot, Time.deltaTime * aimSmoothing);
+    }
+
+    // ---------- Tir (appelé par le texte via FireOnTouchDown3D) ----------
+    public void Fire()
+    {
+        AutoAssignReferences(includeInactive: false);
+
+        if (!laserPrefab)
+        {
+            Debug.LogWarning("Aucun prefab de laser n'est assigné sur " + name, this);
+            return;
+        }
+
+        Transform pivot = cannonPivot ? cannonPivot : transform;
+        if (!pivot)
+        {
+            Debug.LogWarning("Aucun pivot de canon trouvé pour " + name, this);
+            return;
+        }
+
+        Transform muzzleTransform = muzzle ? muzzle : pivot;
+        if (!muzzle)
+        {
+            Debug.LogWarning("Aucun muzzle assigné pour " + name + ". Utilisation du pivot comme origine.", this);
+        }
+
+        if (textExplode) textExplode.SetActive(false);
+
+        // si un laser existe déjà, on le redémarre proprement
+        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+
+        activeBeam = Instantiate(laserPrefab);
+        activeBeam.Begin(
+            muzzleTransform,
+            pivot,
+            fireRange,
+            fireDuration,
+            shouldStop: () => !held   // arrête immédiatement si le doigt #1 se lève
+        );
+    }
+
+    void Reset()
+    {
+        AutoAssignReferences(includeInactive: true);
+    }
+
+#if UNITY_EDITOR
+    void OnValidate()
+    {
+        if (!Application.isPlaying)
+        {
+            AutoAssignReferences(includeInactive: true);
+        }
+    }
+#endif
+
+    void AutoAssignReferences(bool includeInactive)
+    {
+        Transform tangibleRoot = FindChildContaining(transform, "tangible", includeInactive);
+        Transform searchRoot = tangibleRoot ? tangibleRoot : transform;
+
+        if (!cannonPivot || cannonPivot == transform)
+        {
+            Transform candidate = FindChildContaining(searchRoot, "pivot", includeInactive);
+            if (!candidate && searchRoot != transform)
+                candidate = FindChildContaining(transform, "pivot", includeInactive);
+
+            if (!candidate)
+                candidate = FindChildContaining(searchRoot, "laser", includeInactive);
+
+            if (candidate)
+                cannonPivot = candidate;
+        }
+
+        if (!muzzle)
+        {
+            Transform muzzleSearchRoot = cannonPivot ? cannonPivot : searchRoot;
+            muzzle = FindChildContaining(muzzleSearchRoot, "muzzle", includeInactive);
+            if (!muzzle)
+                muzzle = FindChildContaining(muzzleSearchRoot, "laser", includeInactive);
+            if (!muzzle)
+                muzzle = FindFirstRendererLeaf(muzzleSearchRoot, includeInactive);
+            if (!muzzle && muzzleSearchRoot != transform)
+                muzzle = FindFirstRendererLeaf(transform, includeInactive);
+        }
+
+        if (!textExplode)
+        {
+            var fire = searchRoot.GetComponentInChildren<FireOnTouchDown3D>(includeInactive);
+            if (!fire)
+                fire = GetComponentInChildren<FireOnTouchDown3D>(includeInactive);
+
+            if (fire)
+            {
+                textExplode = fire.gameObject;
+                if (!fire.owner) fire.owner = this;
+            }
+        }
+        else
+        {
+            var fire = textExplode.GetComponent<FireOnTouchDown3D>();
+            if (fire && !fire.owner) fire.owner = this;
+        }
+
+        if (!aimPad)
+            aimPad = GetComponentInChildren<AimPad3D>(includeInactive);
+    }
+
+    Transform FindFirstRendererLeaf(Transform root, bool includeInactive)
+    {
+        if (!root) return null;
+
+        var comparison = StringComparison.OrdinalIgnoreCase;
+        var nodes = root.GetComponentsInChildren<Transform>(includeInactive);
+        Transform fallback = null;
+
+        foreach (var node in nodes)
+        {
+            if (node == root) continue;
+
+            bool hasRenderer = node.GetComponent<MeshRenderer>() || node.GetComponent<SkinnedMeshRenderer>();
+            if (!hasRenderer) continue;
+
+            if (node.name.IndexOf("sphere", comparison) >= 0 || node.childCount == 0)
+                return node;
+
+            if (fallback == null)
+                fallback = node;
+        }
+
+        return fallback;
+    }
+
+    Transform FindChildContaining(Transform root, string token, bool includeInactive)
+    {
+        if (!root || string.IsNullOrEmpty(token)) return null;
+        var comparison = StringComparison.OrdinalIgnoreCase;
+        var children = root.GetComponentsInChildren<Transform>(includeInactive);
+        foreach (var child in children)
+        {
+            if (child == root) continue;
+            if (child.name.IndexOf(token, comparison) >= 0)
+                return child;
+        }
+
+        return null;
+    }
+    // --- util ---
+    static float YawOf(Transform t)
+    {
+        Vector3 f = t.forward; f.y = 0f;
+        if (f.sqrMagnitude < 1e-6f) return t.rotation.eulerAngles.y;
+        return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+    }
+}
+
+
+

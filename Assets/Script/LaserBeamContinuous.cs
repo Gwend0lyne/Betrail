@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 
@@ -19,10 +20,16 @@ public class LaserBeamContinuous : MonoBehaviour
     /// Démarre l'affichage du laser en suivant 'muzzle' (origine) et 'pivot' (direction).
     /// S'arrête au bout de 'duration' secondes OU si 'shouldStop()' retourne true.
     /// </summary>
-    public void Begin(Transform muzzle, Transform pivot, float range, float duration, System.Func<bool> shouldStop)
+    public void Begin(
+        Transform muzzle,
+        Transform pivot,
+        float range,
+        float duration,
+        Func<bool> shouldStop,
+        Action<RaycastHit> onHit = null)
     {
         if (running) return;
-        StartCoroutine(Run(muzzle, pivot, range, duration, shouldStop));
+        StartCoroutine(Run(muzzle, pivot, range, duration, shouldStop, onHit));
     }
 
     public void StopNow()
@@ -32,7 +39,13 @@ public class LaserBeamContinuous : MonoBehaviour
         Destroy(gameObject);
     }
 
-    IEnumerator Run(Transform muzzle, Transform pivot, float range, float duration, System.Func<bool> shouldStop)
+    IEnumerator Run(
+        Transform muzzle,
+        Transform pivot,
+        float range,
+        float duration,
+        Func<bool> shouldStop,
+        Action<RaycastHit> onHit)
     {
         running = true;
         lr.enabled = true;
@@ -50,7 +63,10 @@ public class LaserBeamContinuous : MonoBehaviour
 
             Vector3 end = origin + dir * range;
             if (Physics.Raycast(origin, dir, out RaycastHit hit, range))
+            {
                 end = hit.point;
+                onHit?.Invoke(hit);
+            }
 
             lr.SetPosition(0, origin);
             lr.SetPosition(1, end);

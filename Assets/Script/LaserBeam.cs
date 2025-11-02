@@ -19,7 +19,7 @@ public class LaserBeam : MonoBehaviour
     public void Fire(Vector3 origin, Vector3 dir)
     {
         Vector3 end = origin + dir.normalized * range;
-        if (Physics.Raycast(origin, dir, out RaycastHit hit, range))
+        if (Physics.Raycast(origin, dir, out RaycastHit hit, range, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
             end = hit.point;
 
         StopAllCoroutines();
