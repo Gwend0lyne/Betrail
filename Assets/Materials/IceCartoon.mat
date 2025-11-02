@@ -23,32 +23,33 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _NormalMap:
-        m_Texture: {fileID: 0}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
     - _NoiseTex:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _NormalMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
     m_Floats:
-    - _DepthFalloff: 1.2
-    - _DepthStrength: 0.35
-    - _HighlightShift: 0.15
-    - _NormalScale: 1
-    - _Opacity: 0.85
-    - _RimIntensity: 0.9
-    - _RimPower: 3
-    - _ShadowSmooth: 0.25
-    - _SparkleIntensity: 0.3
-    - _SparklePower: 6
-    - _SparkleScale: 2
+    - _DepthFalloff: 1.59
+    - _DepthStrength: 0.168
+    - _HighlightShift: 0.05
+    - _NormalScale: 0.98
+    - _Opacity: 0.881
+    - _RimIntensity: 0.68
+    - _RimPower: 1.77
+    - _ShadowSmooth: 0.322
+    - _SparkleIntensity: 0.192
+    - _SparklePower: 5.7
+    - _SparkleScale: 2.93
     - _UseNormalMap: 0
     m_Colors:
-    - _BaseColor: {r: 0.55, g: 0.8, b: 0.95, a: 1}
-    - _DepthColor: {r: 0.2, g: 0.5, b: 0.8, a: 1}
-    - _HighlightColor: {r: 0.9, g: 1, b: 1, a: 1}
-    - _RimColor: {r: 0.7, g: 0.9, b: 1, a: 1}
-    - _ShadowColor: {r: 0.1, g: 0.25, b: 0.45, a: 1}
+    - _BaseColor: {r: 0, g: 0.2773807, b: 1, a: 1}
+    - _DepthColor: {r: 0, g: 0.7532389, b: 1, a: 1}
+    - _HighlightColor: {r: 0.2971698, g: 0.7116929, b: 1, a: 1}
+    - _RimColor: {r: 1, g: 1, b: 1, a: 1}
+    - _ShadowColor: {r: 0, g: 0.31684113, b: 1, a: 1}
     - _SparkleSpeed: {r: 0.25, g: 0.1, b: 0, a: 0}
   m_BuildTextureStacks: []
