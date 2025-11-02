@@ -6,6 +6,10 @@ using UnityEngine.UI;
 [RequireComponent(typeof(CanvasGroup))]
 public class StalactikInteraction : MonoBehaviour, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
+    [Header("Unlocked appearance")]
+    public Image mainImage;
+    public Sprite unlockedSprite;
+    
     [Header("Progress (optional UI)")]
     public Image progressFill;
 
@@ -32,7 +36,15 @@ public class StalactikInteraction : MonoBehaviour, IPointerClickHandler, IBeginD
         if (unlocked) return;
         progress = Mathf.Min(1f, progress + 0.20f);
         Debug.Log($"Stalactik progress: {(int)(progress * 100)}%");
-        if (progress >= 1f) { unlocked = true; Debug.Log("Stalactik UNLOCKED ✅"); }
+        if (progress >= 1f)
+        {
+            unlocked = true;
+            Debug.Log("Stalactik UNLOCKED ✅"); 
+            if (mainImage && unlockedSprite)
+            {
+                mainImage.sprite = unlockedSprite; // changement instantané
+            }
+        }
         UpdateProgressUI();
     }
 
