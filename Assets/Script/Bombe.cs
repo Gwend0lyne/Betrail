@@ -20,23 +20,25 @@ public class Bomb : MonoBehaviour, IPointerClickHandler
 
     void Explode()
     {
-        Debug.Log("bombe qui explose");
+        Debug.Log($"💣 Bombe qui explose à {transform.position}");
 
         var hits = Physics.OverlapSphere(
             transform.position, explosionRadius, affectMask, QueryTriggerInteraction.Ignore);
 
         foreach (var h in hits)
         {
-            // Récupère le MoveLeft touché
+            // 1️⃣ Comportement générique : MoveLeft pénalisé
             var mover = h.GetComponent<MoveLeft>() ?? h.GetComponentInParent<MoveLeft>();
-            if (mover == null) continue;
-
-            // 1) Baisse instantanée de la jauge/vitesse
-            if (mover.source != null)
+            if (mover && mover.source != null)
                 mover.source.ApplyInstantPenalty(penaltyPercent);
 
-            // 2) Tangage 3 s (le mouvement NE s'arrête pas)
-            mover.ApplySway(swayAmplitudeDeg, swayDuration, swayFrequencyHz);
+            // 2️⃣ Comportement spécial : réaction du wagon comme un tir de laser
+            var wagonReaction = h.GetComponent<WagonLaserReaction>() ?? h.GetComponentInParent<WagonLaserReaction>();
+            if (wagonReaction)
+            {
+                wagonReaction.HandleLaserHit();
+                Debug.Log($"→ Wagon touché par explosion : {wagonReaction.name}");
+            }
         }
 
         if (destroyOnExplode) Destroy(gameObject);

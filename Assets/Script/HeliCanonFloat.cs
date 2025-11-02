@@ -46,6 +46,24 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     public float idleOscillationFrequency = 1.2f;
     public float idleOscillationReturnSpeed = 6f;
 
+    [Header("Camera Framing")]
+    [Tooltip("Force le canon à rester visible dans la caméra (utile pour les rapports d'aspect étroits).")]
+    public bool ensureVisibleOnCamera = true;
+    [Tooltip("Bord inférieur de l'écran autorisé (viewport 0..1).")]
+    [Range(0f, 0.5f)] public float viewportMinY = 0.08f;
+    [Tooltip("Bord supérieur de l'écran autorisé (viewport 0..1).")]
+    [Range(0.5f, 1f)] public float viewportMaxY = 0.92f;
+    [Tooltip("Décalage supplémentaire pour éviter de coller aux bords (en unités viewport).")]
+    [Range(0f, 0.2f)] public float viewportPadding = 0.02f;
+
+    [Header("Wagon Interaction")]
+    [Tooltip("Collider du wagon à toucher avec le laser.")]
+    public Collider wagonCollider;
+    [Tooltip("Comportement déclenché lorsqu'on touche le wagon.")]
+    public WagonLaserReaction wagonReaction;
+    [Tooltip("Temps minimum entre deux réactions consécutives pendant un même tir.")]
+    public float wagonHitCooldown = 0.4f;
+
     // états runtime
     bool held = false;          // doigt #1 maintient le canon ?
     int heldPointerId = -1;     // id du doigt #1
@@ -72,6 +90,8 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     // déplacement
     Vector3 startPos; float x; int dir;
 
+    float lastWagonHitTime = float.NegativeInfinity;
+
     void Awake()
     {
         startPos = transform.position;
@@ -89,6 +109,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
         idleOscillationPhaseOffset = UnityEngine.Random.value * Mathf.PI * 2f;
         UpdateAnimationDefaultsIfNeeded(force: true);
+        EnsureVisibleOnCamera();
 
         LogDebug($"Awake -> startPos={startPos}, cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, yawPivot={NameOrNone(laserYawPivot)}");
         if (!cannonPivot) LogWarning("cannonPivot n'est pas assigné.");
@@ -99,9 +120,27 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         if (!laserFan) LogWarning("laserFan n'est pas assigné (rotation désactivée).");
     }
 
+    void Start()
+    {
+        EnsureVisibleOnCamera();
+    }
+
     void Update()
     {
         AnimateVisuals();
+
+        if (held && !Input.GetMouseButton(0) && Input.touchCount == 0)
+        {
+            LogDebug("Sécurité: pointer libéré automatiquement (aucune entrée active)");
+            TryEndHold(heldPointerId, "auto-release");
+
+            fireButtonHeld = false;
+            fireButtonPointerId = int.MinValue;
+
+            // 🔧 réactiver le texte de tir pour les futurs clics
+            if (textExplode && !textExplode.activeSelf)
+                textExplode.SetActive(true);
+        }
 
         if (held)
         {
@@ -110,8 +149,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             return;              // pas de déplacement pendant le hold
         }
 
-        // filet : si plus en hold, assurer l'arr�t du laser + cacher le texte
-        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+        StopActiveBeam("update-no-hold");
         if (textExplode && textExplode.activeSelf) textExplode.SetActive(false);
 
         // déplacement va-et-vient
@@ -168,6 +206,26 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         TryEndHold(e.pointerId, "canon");
     }
 
+
+    bool fireButtonHeld;
+    int fireButtonPointerId = int.MinValue;
+
+    internal void RegisterFireButtonPointer(int pointerId)
+    {
+        fireButtonHeld = true;
+        fireButtonPointerId = pointerId;
+    }
+
+    internal void UnregisterFireButtonPointer(int pointerId)
+    {
+        if (fireButtonHeld && fireButtonPointerId == pointerId)
+        {
+            fireButtonHeld = false;
+            fireButtonPointerId = int.MinValue;
+        }
+    }
+
+
     bool TryStartHold(int pointerId, string source)
     {
         if (held)
@@ -204,7 +262,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             return false;
         }
 
-        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+        StopActiveBeam($"TryEndHold:{source}");
 
         held = false;
         heldPointerId = -1;
@@ -223,6 +281,82 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     internal void ReleaseHoldFromAimPad(AimPad3D pad, int pointerId)
     {
         TryEndHold(pointerId, $"aimPad:{NameOrNone(pad)}");
+    }
+
+    void EnsureVisibleOnCamera()
+    {
+        if (!ensureVisibleOnCamera) return;
+        if (!gameObject.scene.IsValid()) return;
+
+        var cam = Camera.main;
+        if (!cam)
+        {
+            LogDebug("EnsureVisibleOnCamera -> aucune caméra Main trouvée.");
+            return;
+        }
+
+        float minY = Mathf.Clamp01(viewportMinY);
+        float maxY = Mathf.Clamp01(viewportMaxY);
+        if (maxY <= minY)
+        {
+            maxY = Mathf.Clamp01(minY + 0.05f);
+        }
+
+        float padding = Mathf.Clamp(viewportPadding, 0f, 0.45f);
+
+        Vector3 baseViewport = cam.WorldToViewportPoint(startPos);
+        if (baseViewport.z <= 0f) return;
+        float distance = baseViewport.z;
+
+        float ViewportToWorldY(float v)
+        {
+            var world = cam.ViewportToWorldPoint(new Vector3(baseViewport.x, Mathf.Clamp01(v), distance));
+            return world.y;
+        }
+
+        float lowestY = startPos.y - verticalAmplitude;
+        float highestY = startPos.y + verticalAmplitude;
+
+        Vector3 lowestViewport = cam.WorldToViewportPoint(new Vector3(startPos.x, lowestY, startPos.z));
+        if (lowestViewport.z > 0f && lowestViewport.y < minY)
+        {
+            float targetViewport = Mathf.Clamp(minY + padding, 0f, maxY - 0.01f);
+            float desiredLowestY = ViewportToWorldY(targetViewport);
+            float delta = desiredLowestY - lowestY;
+            startPos.y += delta;
+            lowestY += delta;
+            highestY += delta;
+        }
+
+        Vector3 highestViewport = cam.WorldToViewportPoint(new Vector3(startPos.x, highestY, startPos.z));
+        if (highestViewport.z > 0f && highestViewport.y > maxY)
+        {
+            float targetViewport = Mathf.Clamp(maxY - padding, minY + 0.01f, 1f);
+            float desiredHighestY = ViewportToWorldY(targetViewport);
+            float delta = desiredHighestY - highestY;
+            startPos.y += delta;
+        }
+
+        baseViewport = cam.WorldToViewportPoint(startPos);
+        distance = baseViewport.z;
+
+        lowestViewport = cam.WorldToViewportPoint(new Vector3(startPos.x, startPos.y - verticalAmplitude, startPos.z));
+        if (lowestViewport.z > 0f && lowestViewport.y < minY)
+        {
+            float targetViewport = Mathf.Clamp(minY + padding, 0f, maxY);
+            float allowedY = ViewportToWorldY(targetViewport);
+            verticalAmplitude = Mathf.Max(0f, startPos.y - allowedY);
+        }
+
+        highestViewport = cam.WorldToViewportPoint(new Vector3(startPos.x, startPos.y + verticalAmplitude, startPos.z));
+        if (highestViewport.z > 0f && highestViewport.y > maxY)
+        {
+            float targetViewport = Mathf.Clamp(maxY - padding, minY, 1f);
+            float allowedY = ViewportToWorldY(targetViewport);
+            verticalAmplitude = Mathf.Max(0f, allowedY - startPos.y);
+        }
+
+        transform.position = new Vector3(x, startPos.y, startPos.z);
     }
 
     void AnimateVisuals()
@@ -278,6 +412,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     {
         LogDebug("Fire() appelé.");
         AutoAssignReferences(includeInactive: false);
+        EnsureWagonReferences();
 
         if (!laserPrefab)
         {
@@ -299,9 +434,10 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         }
 
         if (textExplode) textExplode.SetActive(false);
+        lastWagonHitTime = Time.time - Mathf.Max(0f, wagonHitCooldown);
 
         // si un laser existe déjà, on le redémarre proprement
-        if (activeBeam) { activeBeam.StopNow(); activeBeam = null; }
+        StopActiveBeam("fire-restart");
 
         activeBeam = Instantiate(laserPrefab);
         LogDebug($"Fire() -> laser instancié '{laserPrefab.name}' (pivot={NameOrNone(pivot)}, muzzle={NameOrNone(muzzleTransform)})");
@@ -310,8 +446,107 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             pivot,
             fireRange,
             fireDuration,
-            shouldStop: () => !held   // arrête immédiatement si le doigt #1 se lève
+            shouldStop: () => !held,  // arrête immédiatement si le doigt #1 se lève
+            onHit: HandleLaserRayHit
         );
+    }
+
+    void HandleLaserRayHit(RaycastHit hit)
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (!IsWagonCollider(hit.collider))
+            return;
+
+        float cooldown = Mathf.Max(0f, wagonHitCooldown);
+        if (Time.time - lastWagonHitTime < cooldown)
+            return;
+
+        lastWagonHitTime = Time.time;
+        EnsureWagonReferences();
+
+        if (!wagonReaction)
+        {
+            LogWarning("HandleLaserRayHit -> aucune WagonLaserReaction assignée.");
+            return;
+        }
+
+        LogDebug($"HandleLaserRayHit -> wagon touché (collider={NameOrNone(hit.collider)}, point={hit.point})");
+        wagonReaction.HandleLaserHit();
+        StopLaserAfterImpact(hit);
+    }
+
+    void StopLaserAfterImpact(RaycastHit hit)
+    {
+        LogDebug($"StopLaserAfterImpact -> arrêt du tir (point={hit.point})");
+
+        bool holdReleased = false;
+        if (held)
+            holdReleased = TryEndHold(heldPointerId, "wagonHit");
+
+        if (!holdReleased)
+            StopActiveBeam("wagonHit");
+    }
+
+    bool IsWagonCollider(Collider other)
+    {
+        if (!other)
+            return false;
+
+        if (wagonCollider)
+        {
+            Transform root = wagonCollider.transform;
+            Transform hitTransform = other.transform;
+            if (other == wagonCollider || hitTransform == root || hitTransform.IsChildOf(root))
+                return true;
+        }
+
+        if (wagonReaction)
+        {
+            Transform reactionRoot = wagonReaction.transform;
+            Transform hitTransform = other.transform;
+            if (hitTransform == reactionRoot || hitTransform.IsChildOf(reactionRoot))
+                return true;
+        }
+
+        return false;
+    }
+
+    void StopActiveBeam(string reason)
+    {
+        if (!activeBeam)
+            return;
+
+        var beam = activeBeam;
+        activeBeam = null;
+        beam.StopNow();
+        LogDebug($"StopActiveBeam -> laser interrompu ({reason})");
+    }
+
+    void EnsureWagonReferences(bool includeInactive = false)
+    {
+        if (!wagonReaction && wagonCollider)
+        {
+            var candidate = wagonCollider.GetComponentInParent<WagonLaserReaction>();
+            if (candidate)
+            {
+                wagonReaction = candidate;
+                LogDebug($"AutoAssign -> wagonReaction assigné ({NameOrNone(wagonReaction)})");
+            }
+        }
+
+        if (!wagonCollider && wagonReaction)
+        {
+            var direct = wagonReaction.GetComponent<Collider>();
+            if (!direct)
+                direct = wagonReaction.GetComponentInChildren<Collider>(includeInactive);
+            if (direct)
+            {
+                wagonCollider = direct;
+                LogDebug($"AutoAssign -> wagonCollider assigné ({NameOrNone(wagonCollider)})");
+            }
+        }
     }
 
     void Reset()
@@ -325,13 +560,14 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         if (!Application.isPlaying)
         {
             AutoAssignReferences(includeInactive: true);
+            EnsureVisibleOnCamera();
         }
     }
 #endif
 
     void AutoAssignReferences(bool includeInactive)
     {
-        LogDebug($"AutoAssignReferences(includeInactive={includeInactive}) -> start (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)})");
+        LogDebug($"AutoAssignReferences(includeInactive={includeInactive}) -> start (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, wagonCollider={NameOrNone(wagonCollider)}, wagonReaction={NameOrNone(wagonReaction)})");
 
         Transform tangibleRoot = FindChildContaining(transform, "tangible", includeInactive);
         Transform searchRoot = tangibleRoot ? tangibleRoot : transform;
@@ -490,9 +726,11 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             LogDebug($"AutoAssign -> aimPad.owner assigné à {NameOrNone(aimPad)}");
         }
 
+        EnsureWagonReferences(includeInactive);
+
         bool pivotAdjusted = EnsureLaserYawPivot(includeInactive);
 
-        LogDebug($"AutoAssign -> résultat final (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, yawPivot={NameOrNone(laserYawPivot)})");
+        LogDebug($"AutoAssign -> résultat final (cannonPivot={NameOrNone(cannonPivot)}, muzzle={NameOrNone(muzzle)}, textExplode={NameOrNone(textExplode)}, aimPad={NameOrNone(aimPad)}, laserVisualRoot={NameOrNone(laserVisualRoot)}, laserFan={NameOrNone(laserFan)}, yawPivot={NameOrNone(laserYawPivot)}, wagonCollider={NameOrNone(wagonCollider)}, wagonReaction={NameOrNone(wagonReaction)})");
         UpdateAnimationDefaultsIfNeeded(force: pivotAdjusted);
     }
 

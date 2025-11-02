@@ -31,8 +31,16 @@ public class StalactiteImpact : MonoBehaviour
         var ice = Instantiate(icePilePrefab, transform.position + Vector3.up * iceYOffset, Quaternion.identity, parent);
 
         var pile = ice.GetComponent<IcePile>();
+        if (pile == null)
+        {
+            // Allow art-only prefabs by adding the gameplay script at runtime.
+            pile = ice.AddComponent<IcePile>();
+        }
+
         if (pile != null)
+        {
             pile.Initialize(hitWagon ? IcePile.ImpactCase.Wagon : IcePile.ImpactCase.Rails);
+        }
 
         Destroy(gameObject);
     }

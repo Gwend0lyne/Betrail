@@ -29,16 +29,32 @@ public class StalactiteDropSpawner : MonoBehaviour
 
     public void ScheduleDrop(float normalizedAlongRail)
     {
-        if (!worldStart || !worldEnd || !stalactiteWorldPrefab)
+        if (!worldStart || !worldEnd)
         {
-            Debug.LogWarning("[StalactiteDropSpawner] Références manquantes (worldStart/worldEnd/prefab).");
+            Debug.LogWarning("[StalactiteDropSpawner] R�f�rences manquantes (worldStart/worldEnd).");
             return;
         }
+
+        var spawnPrefab = ResolveFallingPrefab();
+        if (!spawnPrefab)
+        {
+            Debug.LogWarning("[StalactiteDropSpawner] Aucun prefab de chute disponible.");
+            return;
+        }
+
         lastT = Mathf.Clamp01(normalizedAlongRail);
-        StartCoroutine(DropRoutine(lastT));
+        StartCoroutine(DropRoutine(spawnPrefab, lastT));
     }
 
-    private IEnumerator DropRoutine(float t)
+
+    GameObject ResolveFallingPrefab()
+    {
+        if (stalactiteWorldPrefab) return stalactiteWorldPrefab;
+        if (icePilePrefab) return icePilePrefab;
+        return null;
+    }
+
+    private IEnumerator DropRoutine(GameObject spawnPrefab, float t)
     {
         // 1) Cible monde
         Vector3 target = Vector3.Lerp(worldStart.position, worldEnd.position, t);
@@ -54,7 +70,7 @@ public class StalactiteDropSpawner : MonoBehaviour
         // 3) Apparition au-dessus puis descente animée
         Vector3 spawnPos = target + Vector3.up * spawnHeight;
         Transform parent = worldParent ? worldParent : transform;
-        GameObject go = Instantiate(stalactiteWorldPrefab, spawnPos, Quaternion.identity, parent);
+        GameObject go = Instantiate(spawnPrefab, spawnPos, Quaternion.identity, parent);
 
         // Sécurités de visibilité
         var rend = go.GetComponentInChildren<Renderer>();
@@ -63,12 +79,14 @@ public class StalactiteDropSpawner : MonoBehaviour
 
         // Injection des références de scène à l’instance
         var impact = go.GetComponent<StalactiteImpact>();
-        if (impact != null)
+        if (impact == null)
         {
-            impact.chariotCollider = chariotCollider;
-            impact.icePilePrefab   = icePilePrefab;
-            impact.worldParent     = worldParent ? worldParent : transform;
+            impact = go.AddComponent<StalactiteImpact>();
         }
+
+        impact.chariotCollider = chariotCollider;
+        impact.icePilePrefab   = icePilePrefab;
+        impact.worldParent     = worldParent ? worldParent : transform;
 
         // 4) Animation de chute
         float tElapsed = 0f;

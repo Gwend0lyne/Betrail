@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: d05906cd087e1844c9811322e53558cc
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - chariotCollider: {instanceID: 0}
+  - icePilePrefab: {instanceID: 0}
+  - worldParent: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
