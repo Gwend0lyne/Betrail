@@ -6,186 +6,119 @@ using UITouch = UnityEngine.InputSystem.EnhancedTouch.Touch;
 using TouchPhaseNew = UnityEngine.InputSystem.TouchPhase;
 
 [RequireComponent(typeof(RectTransform))]
-[RequireComponent(typeof(Image))] // pour capter les touchs (Raycast Target ON)
+[RequireComponent(typeof(Image))]
 public class PlayingAreaQuadBuilder : MonoBehaviour
 {
-    [Header("Polygon style")]
-    [Tooltip("Couleur de la forme (alpha inclus).")]
-    public Color fillColor = new Color(0f, 0.6f, 1f, 0.35f); // bleu transparent
-    [Tooltip("Épaisseur virtuelle (pas utile ici, mais au cas où)")]
-    public float dummyThickness = 1f;
+    public RectTransform area;
+    public Color fillColor = new Color(0f, 0.6f, 1f, 0.35f);
 
-    private RectTransform area;
-    private Canvas canvas;
-    private Camera uiCam;
-
-    // tracking des 4 doigts (touchId EnhancedTouch)
+    private Canvas canvas; private Camera uiCam;
     private readonly List<int> touchIds = new List<int>(4);
+    private RectTransform polyRect; private FilledPolygonGraphic polyGraphic;
 
-    // instance de la forme
-    private RectTransform polyRect;
-    private FilledPolygonGraphic polyGraphic;
-
-    void OnEnable()
-    {
-        EnhancedTouchSupport.Enable();
-        TouchSimulation.Disable(); // évite que la souris soit vue comme touch
-    }
-
-    void OnDisable()
-    {
-        EnhancedTouchSupport.Disable();
-        DestroyPolygon();
-    }
+    private Vector2 lastCenterLocal; private bool hasValidQuad = false;
 
     void Awake()
     {
-        area = GetComponent<RectTransform>();
+        if (!area) area = GetComponent<RectTransform>();
         canvas = GetComponentInParent<Canvas>();
-        uiCam  = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
-               ? canvas.worldCamera : null;
+        uiCam = (canvas && canvas.renderMode != RenderMode.ScreenSpaceOverlay) ? canvas.worldCamera : null;
 
-        // s'assurer que la zone reçoit les touchs
         var img = GetComponent<Image>();
-        if (img)
-        {
-            img.raycastTarget = true;
-            // invisible mais cliquable si tu veux
-            if (img.color.a > 0.001f)
-                img.color = new Color(img.color.r, img.color.g, img.color.b, 0f);
-        }
+        if (img) { img.raycastTarget = true; if (img.color.a > 0.001f) img.color = new Color(img.color.r, img.color.g, img.color.b, 0f); }
     }
 
-    void Update()
-    {
-        CaptureTouches();
-        UpdatePolygon();
-        CleanupIfFewerThanFour();
-    }
+    void OnEnable(){ EnhancedTouchSupport.Enable(); TouchSimulation.Disable(); }
+    void OnDisable(){ EnhancedTouchSupport.Disable(); DestroyPolygonUI(); hasValidQuad = false; }
 
-    // 1) Enregistrer jusqu'à 4 doigts, dans l'ordre où ils arrivent
+    void Update(){ CaptureTouches(); UpdatePolygonUI(); CleanupIfFewerThanFour(); }
+
+    public bool TryGetCenterLocal(out Vector2 centerLocal){ centerLocal = lastCenterLocal; return hasValidQuad; }
+
     private void CaptureTouches()
     {
-        // Ajoute les nouveaux touches (Began) s'ils sont dans la zone
         foreach (var t in UITouch.activeTouches)
         {
             if (t.phase != TouchPhaseNew.Began) continue;
             if (touchIds.Count >= 4) break;
-            if (!IsInArea(t.screenPosition)) continue;
-            if (!touchIds.Contains(t.touchId))
-                touchIds.Add(t.touchId);
+            if (!RectTransformUtility.RectangleContainsScreenPoint(area, t.screenPosition, uiCam)) continue;
+            if (!touchIds.Contains(t.touchId)) touchIds.Add(t.touchId);
         }
     }
 
-    // 2) Mettre à jour/Créer la forme quand on a 4 doigts
-    private void UpdatePolygon()
-    {
-        if (touchIds.Count < 4) return;
-
-        // Récupère les positions locales des 4 doigts (si l'un a disparu, on sort)
-        var pts = new List<Vector2>(4);
-        for (int i = 0; i < 4; i++)
-        {
-            if (!TryGetLocalPos(touchIds[i], out var local))
-                return; // si un doigt a disparu, on attend le cleanup
-            pts.Add(local);
-        }
-
-        // Ordonne les points pour former un quad cohérent (tri par angle autour du centroïde)
-        OrderPointsByAngle(ref pts);
-
-        // Crée la forme si besoin
-        if (polyGraphic == null)
-            CreatePolygonInstance();
-
-        polyGraphic.color = fillColor;
-        polyGraphic.SetPoints(pts);
-    }
-
-    // 3) Détruit la forme si < 4 doigts
-    private void CleanupIfFewerThanFour()
-    {
-        // supprime les touchId morts
-        for (int i = touchIds.Count - 1; i >= 0; i--)
-        {
-            if (!IsTouchAlive(touchIds[i]))
-                touchIds.RemoveAt(i);
-        }
-
-        if (touchIds.Count < 4)
-        {
-            DestroyPolygon();
-        }
-    }
-
-    // ----- helpers polygon -----
-    private void CreatePolygonInstance()
-    {
-        // Crée un GO enfant qui occupe exactement la zone
-        var go = new GameObject("FilledQuad", typeof(RectTransform), typeof(FilledPolygonGraphic));
-        go.transform.SetParent(area, false);
-
-        polyRect = go.GetComponent<RectTransform>();
-        // on fait un "stretch" complet pour que l'espace local corresponde à la zone
-        polyRect.anchorMin = new Vector2(0f, 0f);
-        polyRect.anchorMax = new Vector2(1f, 1f);
-        polyRect.offsetMin = Vector2.zero;
-        polyRect.offsetMax = Vector2.zero;
-        polyRect.pivot     = new Vector2(0.5f, 0.5f);
-        polyRect.localScale = Vector3.one;
-
-        polyGraphic = go.GetComponent<FilledPolygonGraphic>();
-        polyGraphic.color = fillColor;
-    }
-
-    private void DestroyPolygon()
-    {
-        if (polyRect != null)
-        {
-            Destroy(polyRect.gameObject);
-            polyRect = null;
-            polyGraphic = null;
-        }
-    }
-
-    // ----- utils géométrie / input -----
     private bool TryGetLocalPos(int touchId, out Vector2 local)
     {
         foreach (var t in UITouch.activeTouches)
-        {
             if (t.touchId == touchId)
-            {
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(area, t.screenPosition, uiCam, out local);
-                return true;
-            }
+            { RectTransformUtility.ScreenPointToLocalPointInRectangle(area, t.screenPosition, uiCam, out local); return true; }
+        local = default; return false;
+    }
+
+    private void UpdatePolygonUI()
+    {
+        if (touchIds.Count < 4) return;
+        var pts = new List<Vector2>(4);
+        for (int i = 0; i < 4; i++){ if (!TryGetLocalPos(touchIds[i], out var l)) return; pts.Add(l); }
+
+        OrderPointsByAngle(ref pts, out _);
+        lastCenterLocal = QuadCenterByDiagonals(pts);
+        hasValidQuad = true;
+
+        if (polyGraphic == null) CreatePolygonUIInstance();
+        polyGraphic.color = fillColor; polyGraphic.SetPoints(pts);
+    }
+
+    private void CleanupIfFewerThanFour()
+    {
+        for (int i = touchIds.Count - 1; i >= 0; i--)
+        {
+            bool alive = false; foreach (var t in UITouch.activeTouches) if (t.touchId == touchIds[i]) { alive = true; break; }
+            if (!alive) touchIds.RemoveAt(i);
         }
-        local = default;
-        return false;
+        if (touchIds.Count < 4){ DestroyPolygonUI(); hasValidQuad = false; }
     }
 
-    private bool IsTouchAlive(int touchId)
+    private void CreatePolygonUIInstance()
     {
-        foreach (var t in UITouch.activeTouches)
-            if (t.touchId == touchId) return true;
-        return false;
+        var go = new GameObject("FilledQuad", typeof(RectTransform), typeof(FilledPolygonGraphic));
+        go.transform.SetParent(area, false);
+        polyRect = go.GetComponent<RectTransform>();
+        polyRect.anchorMin = Vector2.zero; polyRect.anchorMax = Vector2.one;
+        polyRect.offsetMin = Vector2.zero; polyRect.offsetMax = Vector2.zero; polyRect.pivot = new Vector2(0.5f, 0.5f);
+        polyGraphic = go.GetComponent<FilledPolygonGraphic>(); polyGraphic.color = fillColor;
     }
 
-    private bool IsInArea(Vector2 screenPos) =>
-        RectTransformUtility.RectangleContainsScreenPoint(area, screenPos, uiCam);
+    private void DestroyPolygonUI(){ if (polyRect){ Destroy(polyRect.gameObject); polyRect=null; polyGraphic=null; } }
 
-    private static void OrderPointsByAngle(ref List<Vector2> pts)
+    private static void OrderPointsByAngle(ref List<Vector2> pts, out Vector2 centroid)
     {
-        // Centroïde
-        Vector2 c = Vector2.zero;
-        for (int i = 0; i < pts.Count; i++) c += pts[i];
-        c /= pts.Count;
-
-        // Tri par angle autour du centre (anti-horaire)
+        centroid = Vector2.zero; 
+        for (int i = 0; i < pts.Count; i++) centroid += pts[i]; 
+        centroid /= Mathf.Max(pts.Count, 1);
+        var centroidx = centroid.x;
+        var centroidy = centroid.y;
         pts.Sort((a, b) =>
         {
-            float angA = Mathf.Atan2(a.y - c.y, a.x - c.x);
-            float angB = Mathf.Atan2(b.y - c.y, b.x - c.x);
-            return angA.CompareTo(angB);
+            float angA = Mathf.Atan2(a.y - centroidy, a.x - centroidx); 
+            float angB = Mathf.Atan2(b.y - centroidy, b.x - centroidx); return angA.CompareTo(angB);
         });
+    }
+
+    private static bool LineIntersection(Vector2 a, Vector2 b, Vector2 c, Vector2 d, out Vector2 p)
+    {
+        Vector2 r = b - a, s = d - c; float rxs = r.x * s.y - r.y * s.x;
+        if (Mathf.Abs(rxs) < 1e-6f){ p = 0.25f * (a + b + c + d); return false; }
+        Vector2 cma = c - a; float t = (cma.x * s.y - cma.y * s.x) / rxs; p = a + t * r; return true;
+    }
+
+    private static Vector2 QuadCenterByDiagonals(IList<Vector2> pts)
+    {
+        if (pts == null || pts.Count < 4) return Vector2.zero;
+        return LineIntersection(pts[0], pts[2], pts[1], pts[3], out var p) ? p : 0.25f * (pts[0] + pts[1] + pts[2] + pts[3]);
+    }
+    
+    public bool HasValidQuad()
+    {
+        return touchIds.Count >= 4; // vrai tant que les 4 doigts sont posés
     }
 }

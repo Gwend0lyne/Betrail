@@ -625,6 +625,8 @@ GameObject:
   - component: {fileID: 96951138}
   - component: {fileID: 96951137}
   - component: {fileID: 96951139}
+  - component: {fileID: 96951140}
+  - component: {fileID: 96951141}
   m_Layer: 5
   m_Name: Walls-area
   m_TagString: Untagged
@@ -716,8 +718,44 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d07edf8cb21c7fa468c2cd938c46b8dc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  area: {fileID: 0}
   fillColor: {r: 0, g: 0.52156866, b: 1, a: 0.29411766}
-  dummyThickness: 1
+--- !u!114 &96951140
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bb394c82826f7cc429753a3440f61964, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  mappingRect: {fileID: 96951135}
+  mapAlongX: 0
+  progress: {fileID: 1552963531}
+  follower: {fileID: 1560980417}
+  windowSpanT: 1
+  offsetT: 0
+  clamp01: 1
+--- !u!114 &96951141
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96951134}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 950519ded96a3f143a93a1dd358ed52a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  wagon: {fileID: 1889831905}
+  worldParent: {fileID: 196619127}
+  filet3DPrefab: {fileID: 6076631998331282075, guid: bf0d600ad21141843b368ac97de0491e, type: 3}
+  localOffset: {x: 0, y: 0, z: 0}
+  filetSize: {x: 5, y: 3, z: 5}
 --- !u!4 &98471727 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5167119403060104545, guid: d733c6cc53e1a5448a73396f6ca60ca4, type: 3}
@@ -9554,6 +9592,104 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5368059199605125276, guid: 5bedf7f374b9bb646903623b0d22440c, type: 3}
   m_PrefabInstance: {fileID: 1538895586}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1552963530
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1552963532}
+  - component: {fileID: 1552963531}
+  m_Layer: 0
+  m_Name: RailLogic
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!114 &1552963531
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1552963530}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7323b6b7ed88361428ae49292227f8ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  wagon: {fileID: 1889831905}
+  railStart: {fileID: 159555078}
+  railEnd: {fileID: 247837689}
+--- !u!4 &1552963532
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1552963530}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 13.310963, y: 39.5611, z: 3.4727068}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1560980416
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1560980418}
+  - component: {fileID: 1560980417}
+  m_Layer: 0
+  m_Name: NetFollower
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!114 &1560980417
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1560980416}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7e353e8345ce5f41a19be5b4e1549f3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  railStart: {fileID: 159555078}
+  railEnd: {fileID: 247837689}
+  railYRef: {fileID: 1889831905}
+  worldParent: {fileID: 196619127}
+  filet3DPrefab: {fileID: 6076631998331282075, guid: bf0d600ad21141843b368ac97de0491e, type: 3}
+  filetWorldSize: {x: 2, y: 12, z: 0.6}
+  yAlignOffset: 0
+--- !u!4 &1560980418
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1560980416}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 13.310963, y: 39.5611, z: 3.4727068}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1561942242
 GameObject:
   m_ObjectHideFlags: 0
@@ -13657,9 +13793,9 @@ PrefabInstance:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 857039326}
   - {fileID: 1601809243}
   - {fileID: 250298935}
+  - {fileID: 857039326}
   - {fileID: 196619127}
   - {fileID: 823927027}
   - {fileID: 965064495}
@@ -13674,3 +13810,5 @@ SceneRoots:
   - {fileID: 1933532667}
   - {fileID: 253993499}
   - {fileID: 413148184}
+  - {fileID: 1552963532}
+  - {fileID: 1560980418}

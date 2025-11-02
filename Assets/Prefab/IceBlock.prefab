@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 2419323986015422416}
   - component: {fileID: 1514959407513131522}
   - component: {fileID: -3754808140216942236}
+  - component: {fileID: -9175192736552371703}
   m_Layer: 0
   m_Name: IceBlock
   m_TagString: Untagged
@@ -149,6 +150,25 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!114 &-9175192736552371703
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3231528397417918121}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d05906cd087e1844c9811322e53558cc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  chariotCollider: {fileID: 0}
+  icePilePrefab: {fileID: 0}
+  worldParent: {fileID: 0}
+  iceYOffset: 0
+  wagonHitOverlapRadius: 0.6
+  filetTag: Filet
+  overlapPadding: {x: 0.05, y: 0.05, z: 0.05}
 --- !u!1 &3790234999890108775
 GameObject:
   m_ObjectHideFlags: 0

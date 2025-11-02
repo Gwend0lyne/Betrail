@@ -20,6 +20,11 @@ public class IcePile : MonoBehaviour
         rb.useGravity = false;
         rb.isKinematic = false;
         rb.constraints = RigidbodyConstraints.FreezeAll;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+
+        var col = GetComponent<Collider>();
+        col.isTrigger = false; // la glace collisionne “physiquement” (le filet sera en Trigger)
     }
 
     public void Initialize(ImpactCase c) { currentCase = c; }
@@ -38,7 +43,6 @@ public class IcePile : MonoBehaviour
             Destroy(gameObject);
         }
     }
-
 
     void HandleMouseOrTouch()
     {
@@ -61,18 +65,21 @@ public class IcePile : MonoBehaviour
 
         if (pressing)
         {
-            Ray ray = Camera.main.ScreenPointToRay(screenPos);
+            var cam = Camera.main;
+            if (!cam) return;
+
+            Ray ray = cam.ScreenPointToRay(screenPos);
             Debug.DrawRay(ray.origin, ray.direction * 50f, Color.cyan, 0.2f);
             if (Physics.Raycast(ray, out RaycastHit hit))
             {
-                if (hit.collider.gameObject == gameObject)
+                if (hit.collider && hit.collider.gameObject == gameObject)
                 {
                     if (!isMelting)
                     {
                         isMelting = true;
                         Debug.Log($"Début fonte glace : {name}");
                     }
-                    return; // on reste en fonte
+                    return; // on garde la fonte active
                 }
             }
         }
@@ -100,5 +107,23 @@ public class IcePile : MonoBehaviour
             wagon.StopDueToIce();
             stoppedWagon = wagon;
         }
+    }
+
+    // --- Destruction par FILET (le filet a un collider en Trigger) ---
+    void OnTriggerEnter(Collider other)
+    {
+        if (other.CompareTag("Filet")) DestroyByNet();
+    }
+
+    void OnTriggerStay(Collider other)
+    {
+        if (other.CompareTag("Filet")) DestroyByNet();
+    }
+
+    private void DestroyByNet()
+    {
+        if (stoppedWagon) stoppedWagon.ReleaseFromIce();
+        Debug.Log($"IcePile détruit par Filet @ {transform.position}");
+        Destroy(gameObject);
     }
 }

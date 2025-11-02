@@ -31,7 +31,7 @@ public class StalactiteDropSpawner : MonoBehaviour
     {
         if (!worldStart || !worldEnd)
         {
-            Debug.LogWarning("[StalactiteDropSpawner] R�f�rences manquantes (worldStart/worldEnd).");
+            Debug.LogWarning("[StalactiteDropSpawner] R�f�rences manquantes (worldStart/worldEnd).");
             return;
         }
 
@@ -72,21 +72,34 @@ public class StalactiteDropSpawner : MonoBehaviour
         Transform parent = worldParent ? worldParent : transform;
         GameObject go = Instantiate(spawnPrefab, spawnPos, Quaternion.identity, parent);
 
-        // Sécurités de visibilité
+        // ► SÉCURITÉS VISU
         var rend = go.GetComponentInChildren<Renderer>();
         if (rend) rend.enabled = true;
         if (go.transform.localScale == Vector3.zero) go.transform.localScale = Vector3.one;
 
-        // Injection des références de scène à l’instance
-        var impact = go.GetComponent<StalactiteImpact>();
-        if (impact == null)
+        // ► GARANTIR UN COLLIDER SUR LE STALACTITE
+        var col = go.GetComponent<Collider>();
+        if (col == null)
         {
-            impact = go.AddComponent<StalactiteImpact>();
+            // Taille approximative via le Renderer
+            var box = go.AddComponent<BoxCollider>();
+            if (rend != null)
+            {
+                var b = rend.bounds;
+                box.size = go.transform.InverseTransformVector(new Vector3(b.size.x, b.size.y, b.size.z));
+                box.center = go.transform.InverseTransformPoint(b.center);
+            }
+            // Trigger = OFF : on veut être "touchable" par le filet trigger
+            box.isTrigger = false;
         }
 
+        // ► INJECTION DES RÉFS
+        var impact = go.GetComponent<StalactiteImpact>();
+        if (impact == null) impact = go.AddComponent<StalactiteImpact>();
         impact.chariotCollider = chariotCollider;
         impact.icePilePrefab   = icePilePrefab;
         impact.worldParent     = worldParent ? worldParent : transform;
+
 
         // 4) Animation de chute
         float tElapsed = 0f;
