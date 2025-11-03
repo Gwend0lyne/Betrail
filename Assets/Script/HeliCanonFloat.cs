@@ -64,9 +64,15 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     [Tooltip("Temps minimum entre deux réactions consécutives pendant un même tir.")]
     public float wagonHitCooldown = 0.4f;
 
+    [Header("Laser Blocking")]
+    [Tooltip("Layers treated as solid blockers for the helicopter laser. Leave empty to rely on LaserBlocker components.")]
+    public LayerMask laserBlockerLayers = 0;
+
     // états runtime
     bool held = false;          // doigt #1 maintient le canon ?
     int heldPointerId = -1;     // id du doigt #1
+    bool holdFromClick;
+    bool laserStopRequested;
     float aimYLevel;            // plan horizontal de visée
 
     public bool IsHeld => held;
@@ -129,19 +135,6 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     {
         AnimateVisuals();
 
-        if (held && !Input.GetMouseButton(0) && Input.touchCount == 0)
-        {
-            LogDebug("Sécurité: pointer libéré automatiquement (aucune entrée active)");
-            TryEndHold(heldPointerId, "auto-release");
-
-            fireButtonHeld = false;
-            fireButtonPointerId = int.MinValue;
-
-            // 🔧 réactiver le texte de tir pour les futurs clics
-            if (textExplode && !textExplode.activeSelf)
-                textExplode.SetActive(true);
-        }
-
         if (held)
         {
             if (textExplode && !textExplode.activeSelf) textExplode.SetActive(true);
@@ -149,7 +142,8 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             return;              // pas de déplacement pendant le hold
         }
 
-        StopActiveBeam("update-no-hold");
+        if (laserStopRequested)
+            StopActiveBeam("update-no-hold");
         if (textExplode && textExplode.activeSelf) textExplode.SetActive(false);
 
         // déplacement va-et-vient
@@ -166,20 +160,20 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     // ---------- Maintien sur le canon ----------
     public void OnPointerDown(PointerEventData e)
     {
-        if (TryStartHold(e.pointerId, "canon"))
+        if (!held)
+        {
+            TryStartHold(e.pointerId, "canon-click", fromClick: true);
             return;
+        }
 
-        LogDebug($"OnPointerDown ignoré -> pointerId={e.pointerId}, heldPointerId={heldPointerId}");
+        TryEndHold(heldPointerId, "canon-click-toggle");
     }
 
     public void OnPointerUp(PointerEventData e)
     {
-        if (!held)
-        {
-            LogDebug($"OnPointerUp ignoré -> aucun hold actif pour pointerId={e.pointerId}");
+        if (!held || holdFromClick)
             return;
-        }
-        // si ce n'est pas le doigt #1 : ignorer un relâchement fait au-dessus du texte
+
         if (e.pointerId != heldPointerId)
         {
             if (textExplode && textExplode.activeInHierarchy)
@@ -198,12 +192,10 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
                     }
                 }
             }
-            LogDebug($"OnPointerUp ignoré -> pointerId={e.pointerId}, heldPointerId={heldPointerId}");
             return;
         }
 
-        // Ici : doigt #1 se relâche → on coupe TOUT et on repart
-        TryEndHold(e.pointerId, "canon");
+        TryEndHold(e.pointerId, "canon-pointerUp");
     }
 
 
@@ -226,7 +218,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
     }
 
 
-    bool TryStartHold(int pointerId, string source)
+    bool TryStartHold(int pointerId, string source, bool fromClick = false)
     {
         if (held)
         {
@@ -240,6 +232,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
         held = true;
         heldPointerId = pointerId;
+        holdFromClick = fromClick;
 
         aimYawVelocity = 0f;
 
@@ -248,7 +241,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         return true;
     }
 
-    bool TryEndHold(int pointerId, string source)
+    bool TryEndHold(int pointerId, string source, bool stopLaser = true)
     {
         if (!held)
         {
@@ -262,10 +255,12 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             return false;
         }
 
-        StopActiveBeam($"TryEndHold:{source}");
+        if (stopLaser)
+            StopActiveBeam($"TryEndHold:{source}");
 
         held = false;
         heldPointerId = -1;
+        holdFromClick = false;
         aimYawVelocity = 0f;
 
         if (textExplode) textExplode.SetActive(false);
@@ -273,8 +268,22 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         return true;
     }
 
+    bool TryAdoptHoldFromClick(int pointerId, string source)
+    {
+        if (!held || !holdFromClick)
+            return false;
+
+        LogDebug($"Hold transféré via {source} -> pointerId={pointerId}");
+        heldPointerId = pointerId;
+        holdFromClick = false;
+        return true;
+    }
+
     internal bool TryBeginHoldFromAimPad(AimPad3D pad, int pointerId)
     {
+        if (TryAdoptHoldFromClick(pointerId, $"aimPadAdopt:{NameOrNone(pad)}"))
+            return true;
+
         return TryStartHold(pointerId, $"aimPad:{NameOrNone(pad)}");
     }
 
@@ -438,6 +447,7 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
 
         // si un laser existe déjà, on le redémarre proprement
         StopActiveBeam("fire-restart");
+        laserStopRequested = false;
 
         activeBeam = Instantiate(laserPrefab);
         LogDebug($"Fire() -> laser instancié '{laserPrefab.name}' (pivot={NameOrNone(pivot)}, muzzle={NameOrNone(muzzleTransform)})");
@@ -446,15 +456,27 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
             pivot,
             fireRange,
             fireDuration,
-            shouldStop: () => !held,  // arrête immédiatement si le doigt #1 se lève
+            shouldStop: () => laserStopRequested,
             onHit: HandleLaserRayHit
         );
+
+        if (held)
+            TryEndHold(heldPointerId, "fire", stopLaser: false);
     }
 
     void HandleLaserRayHit(RaycastHit hit)
     {
         if (!isActiveAndEnabled)
             return;
+
+        if (IsLaserBlocker(hit, out var blocker))
+        {
+            if (blocker)
+                blocker.NotifyBlocked(hit);
+
+            StopLaserDueToBlocker(hit, blocker);
+            return;
+        }
 
         if (!IsWagonCollider(hit.collider))
             return;
@@ -475,6 +497,12 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         LogDebug($"HandleLaserRayHit -> wagon touché (collider={NameOrNone(hit.collider)}, point={hit.point})");
         wagonReaction.HandleLaserHit();
         StopLaserAfterImpact(hit);
+    }
+
+    void StopLaserDueToBlocker(RaycastHit hit, LaserBlocker blocker)
+    {
+        LogDebug($"StopLaserDueToBlocker -> laser bloqué (collider={NameOrNone(blocker ? (UnityEngine.Object)blocker : hit.collider)}, point={hit.point})");
+        StopActiveBeam("blocked");
     }
 
     void StopLaserAfterImpact(RaycastHit hit)
@@ -513,15 +541,41 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         return false;
     }
 
+    bool IsLaserBlocker(RaycastHit hit, out LaserBlocker blocker)
+    {
+        blocker = null;
+        var other = hit.collider;
+        if (!other)
+            return false;
+
+        if (laserBlockerLayers != 0)
+        {
+            int mask = 1 << other.gameObject.layer;
+            if ((laserBlockerLayers.value & mask) != 0)
+                return true;
+        }
+
+        blocker = other.GetComponent<LaserBlocker>() ?? other.GetComponentInParent<LaserBlocker>();
+        if (blocker && enableDebugLogs)
+            LogDebug($"IsLaserBlocker -> bloqueur détecté ({NameOrNone(blocker)}) via collider {NameOrNone(other)}");
+        return blocker;
+    }
+
     void StopActiveBeam(string reason)
     {
+        laserStopRequested = true;
+
         if (!activeBeam)
+        {
+            laserStopRequested = false;
             return;
+        }
 
         var beam = activeBeam;
         activeBeam = null;
         beam.StopNow();
         LogDebug($"StopActiveBeam -> laser interrompu ({reason})");
+        laserStopRequested = false;
     }
 
     void EnsureWagonReferences(bool includeInactive = false)
@@ -910,3 +964,4 @@ public class HeliCanonFloat : MonoBehaviour, IPointerDownHandler, IPointerUpHand
         return obj ? obj.name : "null";
     }
 }
+

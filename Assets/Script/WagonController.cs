@@ -7,7 +7,7 @@ public class WagonController : MonoBehaviour
 
     [Header("Glace / collisions")]
     [Tooltip("Si la vitesse monde >= seuil → la glace est cassée.")]
-    public float breakIceSpeedThreshold = 3.0f;
+    public float breakIceSpeedThreshold = 5.0f;
 
     [Tooltip("Facteur appliqué quand on casse (0.5 = moitié de vitesse).")]
     [Range(0f,1f)] public float slowdownFactorOnBreak = 0.5f;

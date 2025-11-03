@@ -41,5 +41,7 @@ public class StalactiteImpact : MonoBehaviour
 
         var pile = ice.GetComponent<IcePile>() ?? ice.AddComponent<IcePile>();
         pile.Initialize(hitWagon ? IcePile.ImpactCase.Wagon : IcePile.ImpactCase.Rails);
+
+        Destroy(gameObject);
     }
 }

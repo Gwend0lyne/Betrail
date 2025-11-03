@@ -986,6 +986,9 @@ MonoBehaviour:
   wagonCollider: {fileID: 0}
   wagonReaction: {fileID: 0}
   wagonHitCooldown: 0.4
+  laserBlockerLayers:
+    serializedVersion: 2
+    m_Bits: 0
 --- !u!65 &430652224897882191
 BoxCollider:
   m_ObjectHideFlags: 0

@@ -27,6 +27,8 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
     int _activePointerId = -1;
     Vector2 _screenPos;
     bool _ownsHold = false;
+    bool _pendingToggleOff;
+    int _holdPointerId = -1;
     Transform _cachedPlatformFan;
     Quaternion _platformFanBaseRotation = Quaternion.identity;
     float _platformFanAngle;
@@ -46,25 +48,21 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
     void Update()
     {
         AnimateFan();
+        EnsureOwnerHoldSync();
     }
 
     public void OnPointerDown(PointerEventData e)
     {
-        // si pas déjà pris, on capture ce doigt pour la visée
-        if (_active) return;
-        _active = true;
-        _activePointerId = e.pointerId;
         _screenPos = e.position;
-        _ownsHold = owner && owner.TryBeginHoldFromAimPad(this, e.pointerId);
-        if (!_ownsHold && owner && owner.IsHeld && owner.CurrentHeldPointerId == e.pointerId)
+
+        if (!_active)
         {
-            _ownsHold = true;
-            LogDebug($"OnPointerDown -> récupération du hold existant (pointerId={e.pointerId}).");
+            EngageAim(e);
+            return;
         }
-        else if (!_ownsHold && owner)
-        {
-            LogDebug($"OnPointerDown -> hold non démarré (canon déjà tenu par pointerId={owner.CurrentHeldPointerId}).");
-        }
+
+        _activePointerId = e.pointerId;
+        _pendingToggleOff = true;
         LogDebug($"OnPointerDown -> pointerId={_activePointerId}, screenPos={_screenPos}");
     }
 
@@ -72,27 +70,22 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
     {
         if (!_active || e.pointerId != _activePointerId) return;
         _screenPos = e.position;
+        _pendingToggleOff = false;
         LogDebug($"OnDrag -> pointerId={e.pointerId}, screenPos={_screenPos}");
     }
 
     public void OnPointerUp(PointerEventData e)
     {
-        if (!_active || e.pointerId != _activePointerId) return;
-        _active = false;
+        if (e.pointerId != _activePointerId) return;
+
+        bool toggleOff = _pendingToggleOff;
         _activePointerId = -1;
-        bool released = false;
-        if (_ownsHold && owner)
-        {
-            owner.ReleaseHoldFromAimPad(this, e.pointerId);
-            _ownsHold = false;
-            released = true;
-        }
-        else if (owner && owner.IsHeld && owner.CurrentHeldPointerId == e.pointerId)
-        {
-            owner.ReleaseHoldFromAimPad(this, e.pointerId);
-            released = true;
-        }
-        LogDebug($"OnPointerUp -> pointerId={e.pointerId}, releasedHold={released}");
+        _pendingToggleOff = false;
+
+        if (toggleOff)
+            DisengageAim("tap-toggle", e.pointerId);
+
+        LogDebug($"OnPointerUp -> pointerId={e.pointerId}, toggleOff={toggleOff}");
     }
 
     void AnimateFan()
@@ -198,5 +191,90 @@ public class AimPad3D : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, I
     static string NameOrNone(UnityEngine.Object obj)
     {
         return obj ? obj.name : "null";
+    }
+
+    void EngageAim(PointerEventData e)
+    {
+        if (!owner)
+        {
+            LogWarning("EngageAim -> owner manquant, visée impossible.");
+            ResetState();
+            return;
+        }
+
+        _activePointerId = e.pointerId;
+        _pendingToggleOff = false;
+        _ownsHold = owner.TryBeginHoldFromAimPad(this, e.pointerId);
+        if (!_ownsHold && owner.IsHeld && owner.CurrentHeldPointerId == e.pointerId)
+        {
+            _ownsHold = true;
+            LogDebug($"EngageAim -> récupération du hold existant (pointerId={e.pointerId}).");
+        }
+        else if (!_ownsHold && owner.IsHeld)
+        {
+            LogDebug($"EngageAim -> hold déjà détenu par pointerId={owner.CurrentHeldPointerId}.");
+        }
+        else if (!_ownsHold)
+        {
+            LogDebug("EngageAim -> échec du démarrage du hold.");
+        }
+
+        bool holdActive = owner.IsHeld && owner.CurrentHeldPointerId == e.pointerId;
+        if (!holdActive)
+        {
+            ResetState();
+            return;
+        }
+
+        _holdPointerId = owner.CurrentHeldPointerId;
+        _active = true;
+        LogDebug($"EngageAim -> hold acquis (pointerId={_holdPointerId}).");
+    }
+
+    void DisengageAim(string reason, int triggeringPointerId)
+    {
+        if (!_active)
+        {
+            LogDebug($"DisengageAim -> ignoré ({reason}), aucune visée active.");
+            return;
+        }
+
+        bool released = false;
+        if (owner)
+        {
+            int pointerIdToRelease = _holdPointerId;
+            if (pointerIdToRelease == -1 && owner.IsHeld)
+                pointerIdToRelease = owner.CurrentHeldPointerId;
+
+            if (pointerIdToRelease != -1)
+            {
+                owner.ReleaseHoldFromAimPad(this, pointerIdToRelease);
+                released = true;
+            }
+        }
+
+        ResetState();
+        LogDebug($"DisengageAim -> reason={reason}, triggerPointer={triggeringPointerId}, releaseRequested={released}");
+    }
+
+    void EnsureOwnerHoldSync()
+    {
+        if (!_active)
+            return;
+
+        if (!owner || !owner.IsHeld)
+        {
+            ResetState();
+            LogDebug("EnsureOwnerHoldSync -> hold perdu, visée réinitialisée.");
+        }
+    }
+
+    void ResetState()
+    {
+        _active = false;
+        _activePointerId = -1;
+        _ownsHold = false;
+        _pendingToggleOff = false;
+        _holdPointerId = -1;
     }
 }
