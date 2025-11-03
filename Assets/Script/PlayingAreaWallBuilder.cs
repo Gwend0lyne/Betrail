@@ -13,10 +13,26 @@ public class PlayingAreaWallBuilder : MonoBehaviour
     public RectTransform wallPrefab;  // Prefab UI du mur
     public float wallThickness = 10f; // Épaisseur du mur
 
+    [Header("World Wall")]
+    [Tooltip("Prefab 3D instancié dans la scène pour bloquer physiquement le laser (doit inclure LaserBlocker + Collider).")]
+    public GameObject worldWallPrefab;
+    [Tooltip("Parent hiérarchique pour la version 3D du mur (facultatif).")]
+    public Transform worldWallParent;
+    [Tooltip("Hauteur (Y monde) du plan sur lequel on projette les doigts pour positionner le mur 3D.")]
+    public float worldWallPlaneY = 0f;
+    [Tooltip("Largeur X appliquée à l'objet 3D généré.")]
+    public float worldWallThickness = 0.5f;
+    [Tooltip("Taille verticale Y appliquée à l'objet 3D généré.")]
+    public float worldWallHeight = 3f;
+    [Tooltip("Décalage additionnel appliqué à l'objet 3D.")]
+    public Vector3 worldWallOffset = Vector3.zero;
+
     private RectTransform area;
     private Canvas canvas;
     private Camera uiCam;
     private RectTransform currentWall;
+    private GameObject currentWorldWall;
+    private bool invalidParentWarningLogged;
 
     // Gestion multitouch séquentielle
     private int firstTouchId = -1;
@@ -90,8 +106,7 @@ public class PlayingAreaWallBuilder : MonoBehaviour
             bool bAlive = IsTouchAlive(secondTouchId);
             if (!aAlive || !bAlive)
             {
-                Destroy(currentWall.gameObject);
-                currentWall = null;
+                ClearCurrentWalls();
                 firstTouchId = -1;
                 secondTouchId = -1;
             }
@@ -106,6 +121,7 @@ public class PlayingAreaWallBuilder : MonoBehaviour
         Vector2 aLocal = ScreenToLocal(GetTouchScreenPos(firstTouchId));
         Vector2 bLocal = ScreenToLocal(GetTouchScreenPos(secondTouchId));
         ApplyWallGeometry(currentWall, aLocal, bLocal, wallThickness);
+        ApplyWorldWallGeometry(aLocal, bLocal);
     }
 
     // ----- Création / MàJ -----
@@ -117,8 +133,7 @@ public class PlayingAreaWallBuilder : MonoBehaviour
             return;
         }
 
-        if (currentWall != null)
-            Destroy(currentWall.gameObject);
+        ClearCurrentWalls();
 
         currentWall = Instantiate(wallPrefab, area);
         NormalizeWallRect(currentWall);
@@ -126,6 +141,9 @@ public class PlayingAreaWallBuilder : MonoBehaviour
 
         var img = currentWall.GetComponent<Image>();
         if (img) img.raycastTarget = true;
+
+        CreateWorldWall();
+        ApplyWorldWallGeometry(aLocal, bLocal);
     }
 
     private void ApplyWallGeometry(RectTransform wall, Vector2 aLocal, Vector2 bLocal, float thickness)
@@ -138,6 +156,112 @@ public class PlayingAreaWallBuilder : MonoBehaviour
         wall.anchoredPosition = mid;
         wall.localRotation = Quaternion.Euler(0, 0, angle);
         wall.sizeDelta = new Vector2(length, thickness);
+    }
+
+    private void CreateWorldWall()
+    {
+        if (!worldWallPrefab)
+            return;
+
+        currentWorldWall = Instantiate(worldWallPrefab);
+        Transform parent = GetRuntimeWorldWallParent();
+        if (parent)
+            currentWorldWall.transform.SetParent(parent, false);
+        currentWorldWall.SetActive(true);
+    }
+
+    private void ApplyWorldWallGeometry(Vector2 aLocal, Vector2 bLocal)
+    {
+        if (!currentWorldWall)
+            return;
+
+        if (!TryLocalToWorld(aLocal, out var aWorld) ||
+            !TryLocalToWorld(bLocal, out var bWorld))
+        {
+            currentWorldWall.SetActive(false);
+            return;
+        }
+
+        Vector3 delta = bWorld - aWorld;
+        delta.y = 0f;
+
+        float length = delta.magnitude;
+        if (length < 0.05f)
+        {
+            currentWorldWall.SetActive(false);
+            return;
+        }
+
+        currentWorldWall.SetActive(true);
+
+        Vector3 mid = (aWorld + bWorld) * 0.5f;
+        Quaternion rotation = delta.sqrMagnitude > 1e-6f
+            ? Quaternion.LookRotation(delta.normalized, Vector3.up)
+            : Quaternion.identity;
+
+        Vector3 scale = currentWorldWall.transform.localScale;
+        if (worldWallThickness > 0f)
+            scale.x = worldWallThickness;
+        if (worldWallHeight > 0f)
+            scale.y = worldWallHeight;
+        scale.z = length;
+
+        currentWorldWall.transform.SetPositionAndRotation(
+            mid + worldWallOffset + Vector3.up * (worldWallHeight > 0f ? worldWallHeight * 0.5f : 0f),
+            rotation);
+        currentWorldWall.transform.localScale = scale;
+    }
+
+    private bool TryLocalToWorld(Vector2 local, out Vector3 world)
+    {
+        world = Vector3.zero;
+        if (!area)
+            return false;
+
+        Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(uiCam, area.TransformPoint(local));
+        Camera cam = uiCam ? uiCam : Camera.main;
+        if (!cam)
+            return false;
+
+        Ray ray = cam.ScreenPointToRay(screenPos);
+        Plane plane = new Plane(Vector3.up, new Vector3(0f, worldWallPlaneY, 0f));
+        if (!plane.Raycast(ray, out float dist))
+            return false;
+
+        world = ray.GetPoint(dist);
+        world.y = worldWallPlaneY;
+        return true;
+    }
+
+    private Transform GetRuntimeWorldWallParent()
+    {
+        if (!worldWallParent)
+            return null;
+
+        if (worldWallParent.gameObject.scene.IsValid())
+            return worldWallParent;
+
+        if (!invalidParentWarningLogged)
+        {
+            Debug.LogWarning("[PlayingAreaWallBuilder] worldWallParent doit appartenir à la scène. Parent ignoré.", this);
+            invalidParentWarningLogged = true;
+        }
+        return null;
+    }
+
+    private void ClearCurrentWalls()
+    {
+        if (currentWall)
+        {
+            Destroy(currentWall.gameObject);
+            currentWall = null;
+        }
+
+        if (currentWorldWall)
+        {
+            Destroy(currentWorldWall);
+            currentWorldWall = null;
+        }
     }
 
     // ----- Utilitaires -----
