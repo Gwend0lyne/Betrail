@@ -20,6 +20,7 @@ public class MoveLeft : MonoBehaviour
     // 2) offset absolu temporaire (enlève N unités/s)
     public float slowOffset = 0f;
     Coroutine _offsetCo;
+    Coroutine _smoothFactorCo;
 
     // ---- Tangage visuel (inchangé) ----
     public enum TiltAxis { PitchX, YawY, RollZ }
@@ -94,6 +95,7 @@ public class MoveLeft : MonoBehaviour
     public void ApplySlowdownFactor(float factor, float duration)
     {
         factor = Mathf.Clamp01(factor);
+        if (_smoothFactorCo != null) StopCoroutine(_smoothFactorCo);
         if (_factorCo != null) StopCoroutine(_factorCo);
         _factorCo = StartCoroutine(CoFactor(factor, duration));
     }
@@ -112,6 +114,7 @@ public class MoveLeft : MonoBehaviour
     public void ApplySlowdown(float amount, float duration)
     {
         amount = Mathf.Max(0f, amount);
+        if (_smoothFactorCo != null) StopCoroutine(_smoothFactorCo);
         if (_offsetCo != null) StopCoroutine(_offsetCo);
         _offsetCo = StartCoroutine(CoOffset(amount, duration));
     }
@@ -129,8 +132,10 @@ public class MoveLeft : MonoBehaviour
     {
         if (_factorCo != null) StopCoroutine(_factorCo);
         if (_offsetCo  != null) StopCoroutine(_offsetCo);
+        if (_smoothFactorCo != null) StopCoroutine(_smoothFactorCo);
         _factorCo = null;
         _offsetCo  = null;
+        _smoothFactorCo = null;
         _factor = 1f;
         slowOffset = 0f;
     }
@@ -157,5 +162,56 @@ public class MoveLeft : MonoBehaviour
         }
         tiltTarget.localRotation = tiltInitialLocalRot;
         swayCo = null;
+    }
+
+    public void ApplySmoothSlowdownFactor(float targetFactor, float fadeInDuration, float holdDuration, float fadeOutDuration)
+    {
+        targetFactor = Mathf.Clamp01(targetFactor);
+        if (_smoothFactorCo != null) StopCoroutine(_smoothFactorCo);
+        if (_factorCo != null) { StopCoroutine(_factorCo); _factorCo = null; }
+        _smoothFactorCo = StartCoroutine(CoSmoothFactor(targetFactor, Mathf.Max(0f, fadeInDuration), Mathf.Max(0f, holdDuration), Mathf.Max(0f, fadeOutDuration)));
+    }
+
+    IEnumerator CoSmoothFactor(float targetFactor, float fadeIn, float hold, float fadeOut)
+    {
+        float initial = _factor;
+        float elapsed = 0f;
+        if (fadeIn <= 0f)
+        {
+            _factor = targetFactor;
+        }
+        else
+        {
+            while (elapsed < fadeIn)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / fadeIn);
+                _factor = Mathf.Lerp(initial, targetFactor, t);
+                yield return null;
+            }
+            _factor = targetFactor;
+        }
+
+        if (hold > 0f)
+            yield return new WaitForSeconds(hold);
+
+        elapsed = 0f;
+        if (fadeOut <= 0f)
+        {
+            _factor = 1f;
+        }
+        else
+        {
+            while (elapsed < fadeOut)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / fadeOut);
+                _factor = Mathf.Lerp(targetFactor, 1f, t);
+                yield return null;
+            }
+            _factor = 1f;
+        }
+
+        _smoothFactorCo = null;
     }
 }
