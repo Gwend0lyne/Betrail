@@ -38,7 +38,7 @@ public class Filet3DSpawnerOnWagon : MonoBehaviour
                 var col = filetInstance.GetComponent<BoxCollider>() ?? filetInstance.AddComponent<BoxCollider>();
                 col.size = filetSize;
                 col.center = Vector3.zero;
-                col.isTrigger = false;
+                col.isTrigger = true;
             }
 
             // Suivre la position du wagon

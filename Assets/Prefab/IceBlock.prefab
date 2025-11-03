@@ -121,7 +121,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7e0b6e0321e4950468e7e36ecf0d361e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  meltNeeded: 3
+  meltNeeded: 1.5
   progress: 0
 --- !u!54 &-3754808140216942236
 Rigidbody:
@@ -148,7 +148,7 @@ Rigidbody:
   m_UseGravity: 0
   m_IsKinematic: 0
   m_Interpolate: 0
-  m_Constraints: 0
+  m_Constraints: 126
   m_CollisionDetection: 0
 --- !u!114 &-9175192736552371703
 MonoBehaviour:
@@ -167,8 +167,6 @@ MonoBehaviour:
   worldParent: {fileID: 0}
   iceYOffset: 0
   wagonHitOverlapRadius: 0.6
-  filetTag: Filet
-  overlapPadding: {x: 0.05, y: 0.05, z: 0.05}
 --- !u!1 &3790234999890108775
 GameObject:
   m_ObjectHideFlags: 0

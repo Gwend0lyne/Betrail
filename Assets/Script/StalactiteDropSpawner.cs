@@ -4,128 +4,116 @@ using UnityEngine;
 public class StalactiteDropSpawner : MonoBehaviour
 {
     [Header("Références monde")]
-    public Transform worldStart;        // 0%
-    public Transform worldEnd;          // 100%
-    public Transform groundYRef;        // Y d’impact (rail)
-    public Transform worldParent;       // parent du spawn (ex: "grotte"). Laisser vide = this.
+    public Transform worldStart;
+    public Transform worldEnd;
+    public Transform groundYRef;
+    public Transform worldParent;
 
     [Header("Prefabs")]
-    public GameObject stalactiteWorldPrefab;  // prefab 3D qui tombe (Transform, pas RectTransform)
-    public GameObject icePilePrefab;          // prefab amas de glace (cube temporaire OK)
+    public GameObject stalactiteWorldPrefab;
+    public GameObject icePilePrefab;
 
     [Header("Réfs gameplay (scène)")]
-    public Collider chariotCollider;          // BoxCollider du chariot (objet de scène)
+    public Collider chariotCollider;
 
     [Header("Chute")]
-    public float dropDelay   = 1.0f;
+    public float dropDelay = 1.0f;
     public float spawnHeight = 6.0f;
     public float fallDuration = 0.6f;
-    public AnimationCurve fallCurve = AnimationCurve.EaseInOut(0,0,1,1);
+    public AnimationCurve fallCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
+
+    [Header("Sécurité anti-doubles")]
+    public float spawnCooldown = 0.2f;   // petit cooldown pour éviter les doubles
+    private bool dropInFlight = false;
+    private float lastSpawnTime = -999f;
+    private Coroutine activeCo;
 
     [Header("Debug")]
     public bool verbose = true;
-    [Range(0f,1f)] public float lastT;
+    [Range(0f, 1f)] public float lastT;
     public Vector3 lastTargetWorld;
 
     public void ScheduleDrop(float normalizedAlongRail)
     {
         if (!worldStart || !worldEnd)
         {
-            Debug.LogWarning("[StalactiteDropSpawner] R�f�rences manquantes (worldStart/worldEnd).");
+            Debug.LogWarning("[DropSpawner] Références manquantes (worldStart/worldEnd).");
             return;
         }
 
-        var spawnPrefab = ResolveFallingPrefab();
+        // anti-spam/doublon
+        if (dropInFlight || Time.time - lastSpawnTime < spawnCooldown)
+        {
+            if (verbose) Debug.Log("[DropSpawner] Drop ignoré (déjà en cours / cooldown).");
+            return;
+        }
+
+        var spawnPrefab = stalactiteWorldPrefab ? stalactiteWorldPrefab : icePilePrefab;
         if (!spawnPrefab)
         {
-            Debug.LogWarning("[StalactiteDropSpawner] Aucun prefab de chute disponible.");
+            Debug.LogWarning("[DropSpawner] Aucun prefab de chute disponible.");
             return;
         }
 
         lastT = Mathf.Clamp01(normalizedAlongRail);
-        StartCoroutine(DropRoutine(spawnPrefab, lastT));
-    }
-
-
-    GameObject ResolveFallingPrefab()
-    {
-        if (stalactiteWorldPrefab) return stalactiteWorldPrefab;
-        if (icePilePrefab) return icePilePrefab;
-        return null;
+        activeCo = StartCoroutine(DropRoutine(spawnPrefab, lastT));
     }
 
     private IEnumerator DropRoutine(GameObject spawnPrefab, float t)
     {
-        // 1) Cible monde
+        dropInFlight = true;
+        lastSpawnTime = Time.time;
+
         Vector3 target = Vector3.Lerp(worldStart.position, worldEnd.position, t);
         float groundY = groundYRef ? groundYRef.position.y : target.y;
         target.y = groundY;
         lastTargetWorld = target;
 
-        if (verbose) Debug.Log($"[DropSpawner] t={t:F2}  start={worldStart.position}  end={worldEnd.position}  target={target}");
+        if (verbose) Debug.Log($"[DropSpawner] t={t:F2} start={worldStart.position} end={worldEnd.position} target={target}");
 
-        // 2) Délai avant l’apparition
         yield return new WaitForSeconds(dropDelay);
 
-        // 3) Apparition au-dessus puis descente animée
         Vector3 spawnPos = target + Vector3.up * spawnHeight;
         Transform parent = worldParent ? worldParent : transform;
         GameObject go = Instantiate(spawnPrefab, spawnPos, Quaternion.identity, parent);
 
-        // ► SÉCURITÉS VISU
+        // Sécurise l’affichage
+        if (go.transform.localScale == Vector3.zero) go.transform.localScale = Vector3.one;
         var rend = go.GetComponentInChildren<Renderer>();
         if (rend) rend.enabled = true;
-        if (go.transform.localScale == Vector3.zero) go.transform.localScale = Vector3.one;
 
-        // ► GARANTIR UN COLLIDER SUR LE STALACTITE
-        var col = go.GetComponent<Collider>();
-        if (col == null)
-        {
-            // Taille approximative via le Renderer
-            var box = go.AddComponent<BoxCollider>();
-            if (rend != null)
-            {
-                var b = rend.bounds;
-                box.size = go.transform.InverseTransformVector(new Vector3(b.size.x, b.size.y, b.size.z));
-                box.center = go.transform.InverseTransformPoint(b.center);
-            }
-            // Trigger = OFF : on veut être "touchable" par le filet trigger
-            box.isTrigger = false;
-        }
+        // IMPORTANT : RB cinématique pour que le Trigger du filet marche proprement
+        var rb = go.GetComponent<Rigidbody>() ?? go.AddComponent<Rigidbody>();
+        rb.isKinematic = true;
+        rb.useGravity = false;
 
-        // ► INJECTION DES RÉFS
-        var impact = go.GetComponent<StalactiteImpact>();
-        if (impact == null) impact = go.AddComponent<StalactiteImpact>();
+        var impact = go.GetComponent<StalactiteImpact>() ?? go.AddComponent<StalactiteImpact>();
         impact.chariotCollider = chariotCollider;
         impact.icePilePrefab   = icePilePrefab;
-        impact.worldParent     = worldParent ? worldParent : transform;
+        impact.worldParent     = parent;
 
-
-        // 4) Animation de chute
         float tElapsed = 0f;
         while (tElapsed < fallDuration)
         {
+            // Si détruit au vol (filet), on sort sans rien faire.
+            if (go == null || impact == null || impact.DeflectedByNet)
+                goto FINISH;
+
             tElapsed += Time.deltaTime;
             float k = fallCurve.Evaluate(Mathf.Clamp01(tElapsed / fallDuration));
             go.transform.position = Vector3.Lerp(spawnPos, target, k);
             yield return null;
         }
-        go.transform.position = target;
 
-        // 5) Résolution de l’impact
-        if (impact != null) impact.ResolveImpact();
-
-        if (verbose) Debug.Log($"[DropSpawner] Impact monde @ {target}");
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        if (worldStart && worldEnd)
+        // Dernière vérif avant impact
+        if (go != null && impact != null && !impact.DeflectedByNet)
         {
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawLine(worldStart.position, worldEnd.position);
-            Gizmos.color = Color.red;
-            Gizmos.DrawSphere(lastTargetWorld, 0.2f);
+            impact.ResolveImpact();
+            if (verbose) Debug.Log($"[DropSpawner] Impact monde @ {target}");
         }
+
+    FINISH:
+        dropInFlight = false;
+        activeCo = null;
     }
 }
